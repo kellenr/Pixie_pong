@@ -35,11 +35,7 @@
 		tournamentContinues?: { player1Username: string; player2Username: string; roundName: string } | null;
 		// Champion / Runner-up
 		podium?: { username: string; displayName?: string | null; avatarUrl: string | null; placement: number }[];
-		championWins?: number;
 		championTotalTime?: number;
-		championXpEarned?: number;
-		// Badges
-		newBadges?: { emoji: string; name: string }[];
 		// Actions
 		onViewBracket: () => void;
 		onBackToLobby: () => void;
