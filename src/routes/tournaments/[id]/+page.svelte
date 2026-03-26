@@ -174,22 +174,15 @@
 				socketOverrides = {
 					...socketOverrides,
 					status: 'finished',
-					winnerId: d.winnerId,
 					bracket: d.bracket,
 				};
 				invalidateAll(); // Reload participants with final placements
 			}
-		});
-	});
-
 	onDestroy(() => {
 		const socket = getSocket();
 		if (!socket) return;
 		// Don't remove tournament:cancelled — it's owned by the layout
-		socket.off('tournament:player-joined');
 		socket.off('tournament:player-left');
-		socket.off('tournament:started');
-		socket.off('tournament:bracket-update');
 		socket.off('tournament:finished');
 	});
 
