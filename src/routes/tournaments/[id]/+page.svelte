@@ -12,6 +12,7 @@
 	import Starfield from '$lib/component/effect/Starfield.svelte';
 	import TournamentChat from '$lib/component/tournament/TournamentChat.svelte';
 	import NoiseGrain from '$lib/component/effect/NoiseGrain.svelte';
+	import { dev } from '$app/environment';
 
 	let { data } = $props();
 
@@ -144,6 +145,25 @@
 		);
 	}
 
+	function handleCancel() {
+		const socket = getSocket();
+		if (!socket?.connected) { toast.error('Not connected'); return; }
+		socket.emit('tournament:cancel', { tournamentId: tournament.id });
+		socket.once('tournament:error', (d: { message: string }) => toast.error(d.message));
+		// The onMount 'tournament:cancelled' listener handles the redirect
+	}
+
+	function handleFillBots() {
+		const socket = getSocket();
+		if (!socket?.connected) { toast.error('Not connected'); return; }
+		socket.emit('tournament:fill-bots', { tournamentId: tournament.id });
+		socket.once('tournament:bots-filled', (d: any) => {
+			toast.success(`Added ${d.added} bots`);
+			invalidateAll();
+		});
+		socket.once('tournament:error', (d: { message: string }) => toast.error(d.message));
+	}
+
 	// Listen for real-time updates
 	onMount(() => {
 		const socket = getSocket();
@@ -154,6 +174,12 @@
 		});
 		socket.on('tournament:player-left', (d: any) => {
 			if (d.tournamentId === tournament.id) invalidateAll();
+		});
+		socket.on('tournament:cancelled', (d: any) => {
+			if (d.tournamentId === tournament.id) {
+				toast.info('Tournament was cancelled');
+				goto('/tournaments');
+			}
 		});
 		socket.on('tournament:started', (d: any) => {
 			if (d.tournamentId === tournament.id) {
@@ -185,6 +211,12 @@
 		socket.off('tournament:player-left');
 		socket.off('tournament:finished');
 	});
+
+	function ordinal(n: number): string {
+		const s = ['th', 'st', 'nd', 'rd'];
+		const v = n % 100;
+		return n + (s[(v - 20) % 10] || s[v] || s[0]);
+	}
 
 	function statusLabel(status: string): string {
 		if (status === 'scheduled') return 'Open';

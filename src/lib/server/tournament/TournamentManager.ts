@@ -500,6 +500,49 @@ async function startRoundMatches(
 		if (match.status !== 'pending' || !match.player1Id || !match.player2Id)
 			continue;
 
+		const p1IsBot = isBot(match.player1Id, tourney.playerMap);
+		const p2IsBot = isBot(match.player2Id, tourney.playerMap);
+
+		// Auto-resolve matches involving bots
+		if (p1IsBot || p2IsBot) {
+			let winnerId: number;
+			let loserId: number;
+			let winnerScore = tourney.settings.winScore;
+			let loserScore = Math.floor(Math.random() * (tourney.settings.winScore - 1));
+
+			if (p1IsBot && p2IsBot) {
+				// Both bots — random winner
+				if (Math.random() < 0.5) {
+					winnerId = match.player1Id;
+					loserId = match.player2Id;
+				} else {
+					winnerId = match.player2Id;
+					loserId = match.player1Id;
+				}
+			} else {
+				// Human vs bot — human always wins
+				winnerId = p1IsBot ? match.player2Id : match.player1Id;
+				loserId = p1IsBot ? match.player1Id : match.player2Id;
+			}
+
+			match.status = 'finished';
+			match.winnerId = winnerId;
+			if (match.player1Id === winnerId) {
+				match.player1Score = winnerScore;
+				match.player2Score = loserScore;
+			} else {
+				match.player1Score = loserScore;
+				match.player2Score = winnerScore;
+			}
+
+			// Small delay so bracket updates don't all fire at once
+			const capturedMatch = { ...match };
+			setTimeout(async () => {
+				await advanceWinner(tournamentId, round, capturedMatch.matchIndex, winnerId, loserId, winnerScore, loserScore);
+			}, 500 * match.matchIndex);
+			continue;
+		}
+
 		match.status = 'playing';
 
 		const roomId = `tournament-${tournamentId}-r${round}-m${match.matchIndex}`;
