@@ -2332,6 +2332,15 @@ io.on('connection', (socket) => {
 			console.error('[Tournament] Cancel failed:', err);
 			socket.emit('tournament:error', { message: 'Failed to cancel tournament' });
 		}
+		if (tournament.status !== 'scheduled') {
+			socket.emit('tournament:error', { message: 'Cannot cancel a started tournament' });
+			return;
+		}
+
+		await sql`DELETE FROM tournament_participants WHERE tournament_id = ${data.tournamentId}`;
+		await sql`DELETE FROM tournaments WHERE id = ${data.tournamentId}`;
+		io.emit('tournament:cancelled', { tournamentId: data.tournamentId });
+		io.emit('tournament:list-updated');
 	});
 
 	socket.on('tournament:start', async (data) => {
