@@ -1795,6 +1795,9 @@ async function advanceTournamentWinner(tournamentId, round, matchIndex, winnerId
 			return count + r.matches.filter(m => m.winnerId === loserId).length;
 		}, 0);
 
+		// Determine 2nd place from the final match loser
+		await sql`UPDATE tournament_participants SET placement = 2 WHERE tournament_id = ${tournamentId} AND user_id = ${loserId} AND (placement IS NULL OR placement > 2)`;
+
 		emitToTournamentParticipants(tournamentId, 'tournament:finished', {
 			tournamentId,
 			winnerId,
@@ -2337,10 +2340,14 @@ io.on('connection', (socket) => {
 			return;
 		}
 
-		await sql`DELETE FROM tournament_participants WHERE tournament_id = ${data.tournamentId}`;
-		await sql`DELETE FROM tournaments WHERE id = ${data.tournamentId}`;
-		io.emit('tournament:cancelled', { tournamentId: data.tournamentId });
-		io.emit('tournament:list-updated');
+			await sql`DELETE FROM tournament_participants WHERE tournament_id = ${data.tournamentId}`;
+			await sql`DELETE FROM tournaments WHERE id = ${data.tournamentId}`;
+			io.emit('tournament:cancelled', { tournamentId: data.tournamentId });
+			io.emit('tournament:list-updated');
+		} catch (err) {
+			console.error('[Tournament] Cancel failed:', err);
+			socket.emit('tournament:error', { message: 'Failed to cancel tournament' });
+		}
 	});
 
 	socket.on('tournament:start', async (data) => {
