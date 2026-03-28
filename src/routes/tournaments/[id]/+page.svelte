@@ -200,35 +200,10 @@
 		socket.off('tournament:finished');
 	});
 
-	function ordinal(n: number): string {
-		const s = ['th', 'st', 'nd', 'rd'];
-		const v = n % 100;
-		return n + (s[(v - 20) % 10] || s[v] || s[0]);
-	}
-
 	function statusLabel(status: string): string {
 		if (status === 'scheduled') return 'Open';
 		if (status === 'in_progress') return 'In Progress';
 		return 'Finished';
-	}
-
-	function timeAgo(dateStr: string | null): string {
-		if (!dateStr) return '';
-		const diff = Date.now() - new Date(dateStr).getTime();
-		const mins = Math.floor(diff / 60000);
-		if (mins < 1) return 'just now';
-		if (mins < 60) return `${mins}m ago`;
-		const hours = Math.floor(mins / 60);
-		if (hours < 24) return `${hours}h ago`;
-		const days = Math.floor(hours / 24);
-		if (days === 1) return 'Yesterday';
-		return `${days} days ago`;
-	}
-
-	function speedEmoji(speed: string): string {
-		if (speed === 'chill') return '🐢';
-		if (speed === 'fast') return '🔥';
-		return '🏓';
 	}
 
 	let winnerUsername = $derived.by(() => {
@@ -249,17 +224,12 @@
 
 	// Current user's participant data
 	let myParticipant = $derived(
-<<<<<<< HEAD
 		participants.find((p: any) => p.userId === data.userId) ?? null,
-=======
-		participants.find((p: any) => p.userId === data.userId) ?? null
->>>>>>> 5cfae4e (Update pages, and correct avatar)
 	);
 
 	// Derive W/L from bracket data
 	let myRecord = $derived.by(() => {
 		if (!bracket || !myParticipant) return { wins: 0, losses: 0 };
-<<<<<<< HEAD
 		let wins = 0,
 			losses = 0;
 		for (const round of bracket) {
@@ -269,13 +239,6 @@
 					match.player1Id === data.userId ||
 					match.player2Id === data.userId
 				) {
-=======
-		let wins = 0, losses = 0;
-		for (const round of bracket) {
-			for (const match of round.matches) {
-				if (match.status !== 'finished' || !match.winnerId) continue;
-				if (match.player1Id === data.userId || match.player2Id === data.userId) {
->>>>>>> 5cfae4e (Update pages, and correct avatar)
 					if (match.winnerId === data.userId) wins++;
 					else losses++;
 				}
@@ -286,12 +249,8 @@
 
 	function playerRecord(userId: number): { wins: number; losses: number } {
 		if (!bracket) return { wins: 0, losses: 0 };
-<<<<<<< HEAD
 		let wins = 0,
 			losses = 0;
-=======
-		let wins = 0, losses = 0;
->>>>>>> 5cfae4e (Update pages, and correct avatar)
 		for (const round of bracket) {
 			for (const match of round.matches) {
 				if (match.status !== 'finished' || !match.winnerId) continue;
@@ -321,7 +280,6 @@
 
 	{#if tournament.speedPreset}
 		<div class="info-bar">
-<<<<<<< HEAD
 			<span class="info-item"
 				>{speedEmoji(tournament.speedPreset)}
 				<strong>{tournament.speedPreset}</strong></span
@@ -340,15 +298,6 @@
 				<span class="info-item"
 					>📅 Started <strong>{timeAgo(tournament.startedAt)}</strong></span
 				>
-=======
-			<span class="info-item">{speedEmoji(tournament.speedPreset)} <strong>{tournament.speedPreset}</strong></span>
-			<span class="info-item">🎯 First to <strong>{tournament.winScore}</strong></span>
-			<span class="info-item">👥 <strong>{participants.length}</strong> players</span>
-			{#if tournament.finishedAt}
-				<span class="info-item">📅 <strong>{timeAgo(tournament.finishedAt)}</strong></span>
-			{:else if tournament.startedAt}
-				<span class="info-item">📅 Started <strong>{timeAgo(tournament.startedAt)}</strong></span>
->>>>>>> 5cfae4e (Update pages, and correct avatar)
 			{/if}
 		</div>
 	{/if}
@@ -363,16 +312,12 @@
 				{#if second}
 					<div class="podium-entry second">
 						<div class="podium-avatar silver-ring">
-<<<<<<< HEAD
 							<UserAvatar
 								username={second.username}
 								displayName={second.name}
 								avatarUrl={second.avatarUrl}
 								size="lg"
 							/>
-=======
-							<UserAvatar username={second.username} displayName={second.name} avatarUrl={second.avatarUrl} size="lg" />
->>>>>>> 5cfae4e (Update pages, and correct avatar)
 						</div>
 						<span class="podium-name">{second.name ?? second.username}</span>
 						<span class="podium-place silver">2nd Place 🥈</span>
@@ -385,16 +330,12 @@
 					<div class="podium-entry first">
 						<span class="crown">👑</span>
 						<div class="podium-avatar gold-ring">
-<<<<<<< HEAD
 							<UserAvatar
 								username={first.username}
 								displayName={first.name}
 								avatarUrl={first.avatarUrl}
 								size="xl"
 							/>
-=======
-							<UserAvatar username={first.username} displayName={first.name} avatarUrl={first.avatarUrl} size="xl" />
->>>>>>> 5cfae4e (Update pages, and correct avatar)
 						</div>
 						<span class="podium-name">{first.name ?? first.username}</span>
 						<span class="podium-place gold">1st Place</span>
@@ -409,16 +350,12 @@
 							{#each thirds as p3}
 								<div class="podium-avatar-stacked">
 									<div class="podium-avatar bronze-ring">
-<<<<<<< HEAD
 										<UserAvatar
 											username={p3.username}
 											displayName={p3.name}
 											avatarUrl={p3.avatarUrl}
 											size={thirds.length > 1 ? 'md' : 'lg'}
 										/>
-=======
-										<UserAvatar username={p3.username} displayName={p3.name} avatarUrl={p3.avatarUrl} size={thirds.length > 1 ? 'md' : 'lg'} />
->>>>>>> 5cfae4e (Update pages, and correct avatar)
 									</div>
 									<span class="podium-name">{p3.name ?? p3.username}</span>
 								</div>
@@ -510,7 +447,6 @@
 			<div class="participants-list">
 				{#each [...participants].sort((a, b) => (a.placement ?? 999) - (b.placement ?? 999)) as p}
 					{@const record = playerRecord(p.userId)}
-<<<<<<< HEAD
 					<a
 						href={p.userId === data.userId ? undefined : `/friends/${p.userId}`}
 						class="participant-row"
@@ -535,16 +471,6 @@
 							{p.name ?? p.username}
 							{#if p.userId === data.userId}<span class="you-tag">(you)</span
 								>{/if}
-=======
-					<a href={p.userId === data.userId ? undefined : `/friends/${p.userId}`} class="participant-row" class:is-you={p.userId === data.userId} class:clickable={p.userId !== data.userId}>
-						<span class="p-rank" class:gold={p.placement === 1} class:silver={p.placement === 2} class:bronze={p.placement === 3}>
-							{p.placement ? `#${p.placement}` : '-'}
-						</span>
-						<UserAvatar username={p.username} displayName={p.name} avatarUrl={p.avatarUrl} size="xs" />
-						<span class="p-name">
-							{p.name ?? p.username}
-							{#if p.userId === data.userId}<span class="you-tag">(you)</span>{/if}
->>>>>>> 5cfae4e (Update pages, and correct avatar)
 						</span>
 						<span class="p-record">
 							<span class="rec-wins">{record.wins}W</span>
@@ -596,15 +522,10 @@
 		font-size: 0.8rem;
 		transition: color 0.15s;
 		margin-bottom: 8px;
-<<<<<<< HEAD
 	}
 	.back-link:hover {
 		color: #f3f4f6;
 	}
-=======
-	}
-	.back-link:hover { color: #f3f4f6; }
->>>>>>> 5cfae4e (Update pages, and correct avatar)
 
 	.header {
 		margin-bottom: 24px;
@@ -960,7 +881,6 @@
 		font-size: 0.85rem;
 		text-decoration: none;
 		color: inherit;
-<<<<<<< HEAD
 	}
 
 	.participant-row.clickable {
@@ -998,37 +918,6 @@
 	.p-rank.bronze {
 		color: #d97706;
 	}
-=======
-	}
-
-	.participant-row.clickable {
-		cursor: pointer;
-		transition: border-color 0.15s, background 0.15s;
-	}
-
-	.participant-row.clickable:hover {
-		border-color: rgba(255, 255, 255, 0.12);
-		background: rgba(255, 255, 255, 0.05);
-	}
-
-	.participant-row.is-you {
-		border-color: rgba(255, 107, 157, 0.2);
-		background: rgba(255, 107, 157, 0.04);
-		cursor: default;
-	}
-
-	.p-rank {
-		font-size: 0.75rem;
-		font-weight: 700;
-		color: #4b5563;
-		min-width: 28px;
-		text-align: center;
-	}
-
-	.p-rank.gold { color: #fbbf24; }
-	.p-rank.silver { color: #94a3b8; }
-	.p-rank.bronze { color: #d97706; }
->>>>>>> 5cfae4e (Update pages, and correct avatar)
 
 	.p-name {
 		flex: 1;
@@ -1053,17 +942,12 @@
 		color: #6b7280;
 	}
 
-<<<<<<< HEAD
 	.rec-wins {
 		color: #4ade80;
 	}
 	.rec-losses {
 		color: #f87171;
 	}
-=======
-	.rec-wins { color: #4ade80; }
-	.rec-losses { color: #f87171; }
->>>>>>> 5cfae4e (Update pages, and correct avatar)
 
 	.p-badge {
 		font-size: 0.7rem;
