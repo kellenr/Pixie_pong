@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { PageData } from './$types';
+	import { invalidateAll } from '$app/navigation';
 	import DeleteModal from '$lib/component/common/DeleteModal.svelte';
 	import PasswordInput from '$lib/component/common/PasswordInput.svelte';
 	import { validatePassword, validateEmail, validateConfirmPassword } from '$lib/validation/frontend';
@@ -81,11 +82,12 @@
 	async function updateNotificationPref(key: string, value: boolean) {
 		try {
 			await fetchJSON('/api/settings/notifications', 'PUT', { [key]: value });
+			invalidateAll();   // Refresh layout data so notification guards update immediately
 		} catch {
 			// Silently fail
 		}
 	}
-	
+
 
 
 </script>
@@ -142,12 +144,12 @@
 			<form class="settings-form" onsubmit={handleEmailChange}>
 				<div class="field">
 					<label class="field-label" for="new-email">New Email</label>
-					<input 
-						id="new-email" 
-						type="email" 
-						class="field-input" 
-						bind:value={newEmail} 
-						disabled={savingEmail} 
+					<input
+						id="new-email"
+						type="email"
+						class="field-input"
+						bind:value={newEmail}
+						disabled={savingEmail}
 						placeholder="your.email@example.com" />
 				</div>
 				<div class="field">
