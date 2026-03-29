@@ -89,10 +89,15 @@ export function updatePowerUps(state: GameState, dt: number, settings: GameSetti
 	applyContinuousEffects(state, dt);
 }
 
-// ══════════════════════════════════════════════════════════════
-// STUBS — Behavior logic to be implemented
-// See guide-powerups-behavior.md for instructions
-// ══════════════════════════════════════════════════════════════
+/** Helper: rescale ballVX/ballVY to match currentBallSpeed */
+function rescaleBallVelocity(state: GameState): void {
+	const speed = Math.sqrt(state.ballVX ** 2 + state.ballVY ** 2);
+	if (speed > 0) {
+		const scale = state.currentBallSpeed / speed;
+		state.ballVX *= scale;
+		state.ballVY *= scale;
+	}
+}
 
 /**
  * Called when the ball collides with a power-up item.
@@ -133,12 +138,7 @@ function collectPowerUp(state: GameState, item: PowerUpItem): void {
 	if (item.type === 'speedBall' || item.type === 'slowBall') {
 		const multiplier = item.type === 'speedBall' ? 1.5 : 0.6;
 		state.currentBallSpeed *= multiplier;
-		const currentSpeed = Math.sqrt(state.ballVX ** 2 + state.ballVY ** 2);
-		if (currentSpeed > 0) {
-			const scale = state.currentBallSpeed / currentSpeed;
-			state.ballVX *= scale;
-			state.ballVY *= scale;
-		}
+		rescaleBallVelocity(state);
 	}
 }
 
@@ -146,17 +146,15 @@ function collectPowerUp(state: GameState, item: PowerUpItem): void {
  * Called when an effect's timer reaches 0.
  * Undoes any persistent changes made on collection.
  */
-function onEffectExpired(state: GameState, effect: ActiveEffect, _settings: GameSettings): void {
+function onEffectExpired(state: GameState, effect: ActiveEffect, settings: GameSettings): void {
 	// speedBall/slowBall: reverse the multiplier when the effect wears off
 	if (effect.type === 'speedBall' || effect.type === 'slowBall') {
 		const multiplier = effect.type === 'speedBall' ? 1.5 : 0.6;
 		state.currentBallSpeed /= multiplier;
-		const currentSpeed = Math.sqrt(state.ballVX ** 2 + state.ballVY ** 2);
-		if (currentSpeed > 0) {
-			const scale = state.currentBallSpeed / currentSpeed;
-			state.ballVX *= scale;
-			state.ballVY *= scale;
+		if (effect.type === 'slowBall') {
+			state.currentBallSpeed = Math.min(state.currentBallSpeed, settings.maxBallSpeed);
 		}
+		rescaleBallVelocity(state);
 	}
 	// All other effects (bigPaddle, smallPaddle, freeze, reverse, invisible, wall, magnet)
 	// work by checking activeEffects each frame — removing the entry is sufficient.
@@ -194,7 +192,11 @@ function applyContinuousEffects(state: GameState, dt: number): void {
 			const wallY = CANVAS_HEIGHT / 2 - WALL_HEIGHT / 2;
 
 			// Check ball ↔ wall collision
+			const movingTowardWall =
+				(effect.target === 'player1' && state.ballVX < 0) ||
+				(effect.target === 'player2' && state.ballVX > 0);
 			if (
+				movingTowardWall &&
 				state.ballX + BALL_RADIUS >= wallX &&
 				state.ballX - BALL_RADIUS <= wallX + WALL_WIDTH &&
 				state.ballY + BALL_RADIUS >= wallY &&
@@ -217,9 +219,10 @@ function applyContinuousEffects(state: GameState, dt: number): void {
 				(effect.target === 'player2' && state.ballVX > 0);
 
 			if (approaching) {
+				const paddleHeight = getEffectivePaddleHeight(state, effect.target);
 				const paddleCenterY = effect.target === 'player1'
-					? state.paddle1Y + PADDLE_HEIGHT / 2
-					: state.paddle2Y + PADDLE_HEIGHT / 2;
+					? state.paddle1Y + paddleHeight / 2
+					: state.paddle2Y + paddleHeight / 2;
 
 				const dy = paddleCenterY - state.ballY;
 				const ATTRACTION = 250; // px/s²

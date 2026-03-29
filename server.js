@@ -243,6 +243,9 @@ function onEffectExpired(state, effect, settings) {
 	if (effect.type === 'speedBall' || effect.type === 'slowBall') {
 		const multiplier = effect.type === 'speedBall' ? 1.5 : 0.6;
 		state.currentBallSpeed /= multiplier;
+		if (effect.type === 'slowBall') {
+			state.currentBallSpeed = Math.min(state.currentBallSpeed, settings.maxBallSpeed);
+		}
 		const currentSpeed = Math.sqrt(state.ballVX ** 2 + state.ballVY ** 2);
 		if (currentSpeed > 0) {
 			const scale = state.currentBallSpeed / currentSpeed;
@@ -259,7 +262,11 @@ function applyContinuousEffects(state, dt) {
 				? PADDLE_OFFSET + PADDLE_WIDTH + 60
 				: CANVAS_WIDTH - PADDLE_OFFSET - PADDLE_WIDTH - 68;
 			const wallY = CANVAS_HEIGHT / 2 - WALL_HEIGHT / 2;
+			const movingTowardWall =
+				(effect.target === 'player1' && state.ballVX < 0) ||
+				(effect.target === 'player2' && state.ballVX > 0);
 			if (
+				movingTowardWall &&
 				state.ballX + BALL_RADIUS >= wallX &&
 				state.ballX - BALL_RADIUS <= wallX + WALL_WIDTH &&
 				state.ballY + BALL_RADIUS >= wallY &&
@@ -275,11 +282,12 @@ function applyContinuousEffects(state, dt) {
 				(effect.target === 'player1' && state.ballVX < 0) ||
 				(effect.target === 'player2' && state.ballVX > 0);
 			if (approaching) {
+				const paddleHeight = getEffectivePaddleHeight(state, effect.target);
 				const paddleCenterY = effect.target === 'player1'
-					? state.paddle1Y + PADDLE_HEIGHT / 2
-					: state.paddle2Y + PADDLE_HEIGHT / 2;
+					? state.paddle1Y + paddleHeight / 2
+					: state.paddle2Y + paddleHeight / 2;
 				const dy = paddleCenterY - state.ballY;
-				state.ballVY += Math.sign(dy) * 250 * dt;
+				state.ballVY += Math.sign(dy) * 200 * dt;
 			}
 		}
 	}
@@ -372,9 +380,14 @@ function resetBall(state, settings) {
 	state.ballY = CANVAS_HEIGHT / 2;
 	state.currentBallSpeed = settings.ballSpeed;
 	state.ballSpin = 0;
+	// Reapply active speed effects so the multiplier isn't lost
+	for (const effect of state.activeEffects) {
+		if (effect.type === 'speedBall') state.currentBallSpeed *= 1.5;
+		if (effect.type === 'slowBall') state.currentBallSpeed *= 0.6;
+	}
 	const direction = Math.random() > 0.5 ? 1 : -1;
-	state.ballVX = settings.ballSpeed * direction;
-	state.ballVY = settings.ballSpeed * (Math.random() - 0.5);
+	state.ballVX = state.currentBallSpeed * direction;
+	state.ballVY = state.currentBallSpeed * (Math.random() - 0.5);
 	state.powerUpItem = null;
 	state.powerUpCooldown = POWERUP_COOLDOWN_MIN + Math.random() * (POWERUP_COOLDOWN_MAX - POWERUP_COOLDOWN_MIN);
 }
@@ -400,6 +413,8 @@ function endGameState(state, winnerName) {
 	state.winner = winnerName;
 	state.ballVX = 0;
 	state.ballVY = 0;
+	state.activeEffects = [];
+	state.powerUpItem = null;
 }
 
 function movePaddles(state, dt, input) {

@@ -216,18 +216,6 @@ test-run:
 	@echo "$(CHECK) $(MINT)Tests complete!$(NC)"
 
 # ================================================================================
-# TESTING
-# ================================================================================
-
-# Run full test suite (start DB, push schema, run tests)
-test: test-setup
-	@echo "$(TEST) Running tests on test database (port 5433)..."
-	@DATABASE_URL=postgres://root:mysecretpassword@localhost:5433/db_test \
-	 DB_URL=postgres://root:mysecretpassword@localhost:5433/db_test \
-	 npx vitest --run
-	@echo "$(CHECK) Tests complete!"
-
-# ================================================================================
 # Clean
 # ================================================================================
 

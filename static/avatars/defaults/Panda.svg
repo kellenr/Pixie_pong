@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <rect width="64" height="64" rx="12" fill="#1a1025"/>
+  <!-- Ears -->
+  <circle cx="16" cy="14" r="8" fill="#1f2937"/>
+  <circle cx="48" cy="14" r="8" fill="#1f2937"/>
+  <!-- Head -->
+  <ellipse cx="32" cy="28" rx="20" ry="18" fill="#f3f4f6"/>
+  <!-- Eye patches -->
+  <ellipse cx="23" cy="25" rx="7" ry="8" fill="#1f2937" transform="rotate(-10 23 25)"/>
+  <ellipse cx="41" cy="25" rx="7" ry="8" fill="#1f2937" transform="rotate(10 41 25)"/>
+  <!-- Eyes -->
+  <circle cx="24" cy="25" r="3.5" fill="white"/>
+  <circle cx="40" cy="25" r="3.5" fill="white"/>
+  <circle cx="25" cy="24" r="2" fill="#1f2937"/>
+  <circle cx="41" cy="24" r="2" fill="#1f2937"/>
+  <circle cx="25.5" cy="23.5" r="0.8" fill="white"/>
+  <circle cx="41.5" cy="23.5" r="0.8" fill="white"/>
+  <!-- Nose -->
+  <ellipse cx="32" cy="33" rx="4" ry="3" fill="#1f2937"/>
+  <ellipse cx="32" cy="32.5" rx="2" ry="1" fill="#4b5563"/>
+  <!-- Mouth -->
+  <path d="M30 36 Q32 39 34 36" fill="none" stroke="#1f2937" stroke-width="1.2" stroke-linecap="round"/>
+  <!-- Blush -->
+  <ellipse cx="19" cy="33" rx="3" ry="2" fill="#fda4af" opacity="0.5"/>
+  <ellipse cx="45" cy="33" rx="3" ry="2" fill="#fda4af" opacity="0.5"/>
+  <!-- Body -->
+  <ellipse cx="32" cy="54" rx="14" ry="10" fill="#f3f4f6"/>
+  <ellipse cx="32" cy="55" rx="8" ry="6" fill="#e5e7eb"/>
+</svg>

@@ -7,7 +7,7 @@
 	let openPopup: 'github' | 'linkedin' | null = $state(null);
 
 	const team = [
-		{ name: 'Finn Dunkel', initials: 'FD', github: 'https://github.com/finndark42', linkedin: null },
+		{ name: 'Finn Dunkel', initials: 'FD', github: 'https://github.com/finndark42', linkedin: 'https://www.linkedin.com/in/finn-dunkel-61b2a03b2/' },
 		{ name: 'James Dyar', initials: 'JD', github: 'https://github.com/allthetimeintheworld', linkedin: 'https://www.linkedin.com/in/james-dyar-657688218/' },
 		{ name: 'Karen Bolon', initials: 'KB', github: 'https://github.com/karenbolon', linkedin: 'https://www.linkedin.com/in/karenbolon/' },
 		{ name: 'Kellen Ramos', initials: 'KR', github: 'https://github.com/kellenr', linkedin: 'https://www.linkedin.com/in/kellenr/' },

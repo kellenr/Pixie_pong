@@ -164,6 +164,8 @@ export function endGame(state: GameState, winnerName: string): void {
 	state.winner = winnerName;
 	state.ballVX = 0;
 	state.ballVY = 0;
+	state.activeEffects = [];
+	state.powerUpItem = null;
 }
 
 /** GAMEOVER → MENU */
@@ -220,9 +222,14 @@ function resetBall(state: GameState, settings: GameSettings): void {
 	state.ballY = CANVAS_HEIGHT / 2;
 	state.currentBallSpeed = settings.ballSpeed;
 	state.ballSpin = 0;
+	// Reapply active speed effects so the multiplier isn't lost
+	for (const effect of (state.activeEffects ?? [])) {
+		if (effect.type === 'speedBall') state.currentBallSpeed *= 1.5;
+		if (effect.type === 'slowBall') state.currentBallSpeed *= 0.6;
+	}
 	const direction = Math.random() > 0.5 ? 1 : -1;
-	state.ballVX = settings.ballSpeed * direction;
-	state.ballVY = settings.ballSpeed * (Math.random() - 0.5);
+	state.ballVX = state.currentBallSpeed * direction;
+	state.ballVY = state.currentBallSpeed * (Math.random() - 0.5);
 	// Reset power-up item so a new one spawns
 	state.powerUpItem = null;
 	state.powerUpCooldown = POWERUP_COOLDOWN_MIN

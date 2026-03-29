@@ -6,7 +6,7 @@ import { eq, and, or } from 'drizzle-orm';
 
 export const load: LayoutServerLoad = async ({ locals }) => {
 	if (!locals.user) {
-		return { user: null, friends: [] };
+		return { user: null, friends: [], notificationPrefs: null };
 	}
 
 	const userId = Number(locals.user.id);
@@ -24,8 +24,32 @@ export const load: LayoutServerLoad = async ({ locals }) => {
 		// friendships table might not exist yet
 	}
 
+	// Fetch notification preferences
+	let notificationPrefs = {
+		friendRequests: true,
+		gameInvites: true,
+		matchResults: true,
+	};
+
+	try {
+		const [userRow] = await db
+			.select({ notification_prefs: users.notification_prefs })
+			.from(users)
+			.where(eq(users.id, userId));
+
+		if (userRow?.notification_prefs) {
+			notificationPrefs = {
+				...notificationPrefs,
+				...(userRow.notification_prefs as Record<string, boolean>),
+			};
+		}
+	} catch {
+		// Use defaults if query fails
+	}
+	
 	return {
 		user: locals.user,
-		friends
+		friends,
+		notificationPrefs,
 	};
 };
