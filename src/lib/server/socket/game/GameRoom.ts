@@ -309,7 +309,7 @@ export class GameRoom {
 		this.broadcastState(this.roomId, this.getSnapshot());
 		this.broadcastEvent(this.roomId, 'game:over', result);
 
-		this.onGameEnd(result);
+		Promise.resolve(this.onGameEnd(result)).catch((err: any) => console.error('[GameRoom] onGameEnd error:', err));
 	}
 
 	private handleForfeit(winner: RoomPlayer): void {
@@ -361,7 +361,7 @@ export class GameRoom {
 		};
 
 		this.broadcastEvent(this.roomId, 'game:forfeit', result);
-		this.onGameEnd(result);
+		Promise.resolve(this.onGameEnd(result)).catch((err: any) => console.error('[GameRoom] onGameEnd error (forfeit):', err));
 	}
 
 	/** Immediate forfeit — player chose to leave (no reconnect timer) */

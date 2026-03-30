@@ -262,6 +262,15 @@
 	});
 
 	function handleGameOver(result: any) {
+		if (isSpectator) {
+			// Spectators go back to the tournament page after game ends
+			if (isTournament && tournamentId) {
+				goto(`/tournaments/${tournamentId}`);
+			} else {
+				goto('/play');
+			}
+			return;
+		}
 		gameOverResult = result;
 	}
 

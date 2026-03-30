@@ -265,9 +265,28 @@ export async function cancelTournament(
 	if (!tournament || tournament.created_by !== requestedBy) return false;
 	if (tournament.status !== 'scheduled') return false;
 
-	// Delete participants first (foreign key), then tournament
-	await db
-		.delete(tournamentParticipants)
+	// Delete in correct order to respect FK constraints:
+	// 1. Messages referencing invites (no cascade on tournament_invite_id)
+	// 2. Invites (cascades from tournament delete, but messages block it)
+	// 3. Tournament messages
+	// 4. Participants
+	// 5. Tournament
+	const inviteIds = await db
+		.select({ id: tournamentInvites.id })
+		.from(tournamentInvites)
+		.where(eq(tournamentInvites.tournament_id, tournamentId));
+	if (inviteIds.length > 0) {
+		for (const { id } of inviteIds) {
+			await db.update(messages)
+				.set({ tournament_invite_id: null })
+				.where(eq(messages.tournament_invite_id, id));
+		}
+		await db.delete(tournamentInvites)
+			.where(eq(tournamentInvites.tournament_id, tournamentId));
+	}
+	await db.delete(tournamentMessages)
+		.where(eq(tournamentMessages.tournament_id, tournamentId));
+	await db.delete(tournamentParticipants)
 		.where(eq(tournamentParticipants.tournament_id, tournamentId));
 	await db.delete(tournaments).where(eq(tournaments.id, tournamentId));
 	return true;
@@ -654,6 +673,7 @@ export async function advanceWinner(
 		}
 	}
 
+	console.log(`[Tournament] advanceWinner: round=${round}, totalRounds=${totalRounds}, nextRound=${!!nextRound}`);
 	if (nextRound) {
 		// Emit tournament:eliminated for non-final rounds only
 		// Final round loser gets tournament:finished instead (shows runner-up screen)
@@ -737,6 +757,13 @@ export async function advanceWinner(
 				}, 10_000);
 			}
 		}
+
+		// Non-final round: persist bracket and broadcast update
+		await saveBracketToDb(tournamentId, tourney.bracket);
+		emitToParticipants(tournamentId, 'tournament:bracket-update', {
+			tournamentId,
+			bracket: tourney.bracket,
+		});
 	} else {
 		// No next round — tournament is over!
 		await db
@@ -798,6 +825,13 @@ export async function advanceWinner(
 			return count + r.matches.filter((m) => m.winnerId === loserId).length;
 		}, 0);
 
+		// Save bracket to DB BEFORE emitting events and deleting from memory.
+		// Otherwise invalidateAll() on the client races with saveBracketToDb:
+		// the page load can't find the in-memory bracket (already deleted) and
+		// reads stale bracket_data from the DB.
+		await saveBracketToDb(tournamentId, tourney.bracket);
+
+		console.log(`[Tournament] Emitting tournament:finished for tournament ${tournamentId}, winner=${winnerId}, loser=${loserId}`);
 		emitToParticipants(tournamentId, 'tournament:finished', {
 			tournamentId,
 			winnerId,
@@ -817,15 +851,6 @@ export async function advanceWinner(
 
 		// Notify ALL clients so tournament list pages refresh
 		getIO().emit('tournament:list-updated');
-	}
-
-	// Persist bracket to DB and broadcast to all participants
-	await saveBracketToDb(tournamentId, tourney.bracket);
-	if (activeTournaments.has(tournamentId)) {
-		emitToParticipants(tournamentId, 'tournament:bracket-update', {
-			tournamentId,
-			bracket: tourney.bracket,
-		});
 	}
 }
 

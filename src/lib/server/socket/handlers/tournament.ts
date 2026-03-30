@@ -1,8 +1,8 @@
 import type { Socket } from 'socket.io';
-import { getIO } from '../index';
+import { getIO, userSockets } from '../index';
 import { db } from '$lib/server/db';
 import { tournamentMessages, tournamentParticipants, users } from '$lib/server/db/schema';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, lt } from 'drizzle-orm';
 import {
 	createTournament,
 	joinTournament,
@@ -216,7 +216,7 @@ export function registerTournamentHandlers(socket: Socket) {
 
 		const io = getIO();
 		for (const p of allParticipants) {
-			const sockets = (await import('../index')).userSockets.get(p.id);
+			const sockets = userSockets.get(p.id);
 			if (sockets) {
 				for (const sid of sockets) {
 					io.to(sid).emit('tournament:chat-message', payload);
@@ -246,9 +246,7 @@ export function registerTournamentHandlers(socket: Socket) {
 				before
 					? and(
 						eq(tournamentMessages.tournament_id, tournamentId),
-						// Simple pagination: id < before
-						// (Using raw SQL for less-than since drizzle's lt needs import)
-						eq(tournamentMessages.tournament_id, tournamentId),
+						lt(tournamentMessages.id, before),
 					)
 					: eq(tournamentMessages.tournament_id, tournamentId),
 			)

@@ -593,6 +593,10 @@ function broadcastRoomState(roomId, state) {
 	if (!room) return;
 	for (const sid of room.player1.socketIds) { io.to(sid).emit('game:state', state); }
 	for (const sid of room.player2.socketIds) { io.to(sid).emit('game:state', state); }
+	// Spectators
+	if (room.spectatorSockets) {
+		for (const sid of room.spectatorSockets) { io.to(sid).emit('game:state', state); }
+	}
 }
 
 function broadcastRoomEvent(roomId, event, data) {
@@ -600,6 +604,10 @@ function broadcastRoomEvent(roomId, event, data) {
 	if (!room) return;
 	for (const sid of room.player1.socketIds) { io.to(sid).emit(event, data); }
 	for (const sid of room.player2.socketIds) { io.to(sid).emit(event, data); }
+	// Spectators
+	if (room.spectatorSockets) {
+		for (const sid of room.spectatorSockets) { io.to(sid).emit(event, data); }
+	}
 }
 
 class ServerGameRoom {
@@ -611,6 +619,7 @@ class ServerGameRoom {
 		this.interval = null;
 		this.lastTick = 0;
 		this.disconnectTimers = new Map();
+		this.spectatorSockets = new Set();
 
 		const speedConfig = SPEED_CONFIGS[settings.speedPreset] ?? SPEED_CONFIGS.normal;
 		this.settings = {
@@ -813,11 +822,16 @@ class ServerGameRoom {
 		this.stop();
 		for (const timer of this.disconnectTimers.values()) clearTimeout(timer);
 		this.disconnectTimers.clear();
+		this.spectatorSockets.clear();
 	}
 
 	hasPlayer(userId) {
 		return userId === this.player1.userId || userId === this.player2.userId;
 	}
+
+	addSpectator(socketId) { this.spectatorSockets.add(socketId); }
+	removeSpectator(socketId) { this.spectatorSockets.delete(socketId); }
+	get spectatorCount() { return this.spectatorSockets.size; }
 
 	_getPlayer(userId) {
 		if (userId === this.player1.userId) return this.player1;
@@ -1830,6 +1844,30 @@ io.on('connection', (socket) => {
 		room.handleInput(userId, data.direction);
 	});
 
+	// ── Spectate a game (read-only) ──────────────────────────────
+	socket.on('game:spectate', (data) => {
+		const room = getGameRoom(data.roomId);
+		if (!room) { socket.emit('game:error', { message: 'Game not found' }); return; }
+		room.addSpectator(socket.id);
+		socket.emit('game:spectating', {
+			roomId: data.roomId,
+			player1: { userId: room.player1.userId, username: room.player1.username },
+			player2: { userId: room.player2.userId, username: room.player2.username },
+			spectatorCount: room.spectatorCount,
+		});
+		broadcastRoomEvent(data.roomId, 'game:spectator-count', { count: room.spectatorCount });
+		socket.emit('game:state', room._getSnapshot());
+	});
+
+	// ── Stop spectating ──────────────────────────────────────────
+	socket.on('game:stop-spectating', (data) => {
+		const room = getGameRoom(data.roomId);
+		if (room) {
+			room.removeSpectator(socket.id);
+			broadcastRoomEvent(data.roomId, 'game:spectator-count', { count: room.spectatorCount });
+		}
+	});
+
 	// ── Leave / forfeit ───────────────────────────────────────────
 	socket.on('game:leave', () => {
 		const room = getRoomByPlayerId(userId);
@@ -2014,9 +2052,10 @@ io.on('connection', (socket) => {
 		if (![4, 8, 16].includes(data.maxPlayers)) { socket.emit('tournament:error', { message: 'Max players must be 4, 8, or 16' }); return; }
 
 		const settings = data.settings ?? { speedPreset: 'normal', winScore: 5 };
+		const isPrivate = data.isPrivate ?? false;
 		const [tournament] = await sql`
-			INSERT INTO tournaments (name, game_type, status, created_by, max_players, speed_preset, win_score)
-			VALUES (${data.name.trim()}, 'pong', 'scheduled', ${userId}, ${data.maxPlayers}, ${settings.speedPreset}, ${settings.winScore})
+			INSERT INTO tournaments (name, game_type, status, created_by, max_players, speed_preset, win_score, is_private)
+			VALUES (${data.name.trim()}, 'pong', 'scheduled', ${userId}, ${data.maxPlayers}, ${settings.speedPreset}, ${settings.winScore}, ${isPrivate})
 			RETURNING id
 		`;
 
@@ -2034,6 +2073,12 @@ io.on('connection', (socket) => {
 		const [tournament] = await sql`SELECT * FROM tournaments WHERE id = ${data.tournamentId}`;
 		if (!tournament) { socket.emit('tournament:error', { message: 'Tournament not found' }); return; }
 		if (tournament.status !== 'scheduled') { socket.emit('tournament:error', { message: 'Tournament already started' }); return; }
+
+		// Private tournament — check for invite
+		if (tournament.is_private && tournament.created_by !== userId) {
+			const invite = await sql`SELECT id FROM tournament_invites WHERE tournament_id = ${data.tournamentId} AND invited_user_id = ${userId}`;
+			if (invite.length === 0) { socket.emit('tournament:error', { message: 'Invite required for private tournament' }); return; }
+		}
 
 		const existing = await sql`SELECT id FROM tournament_participants WHERE tournament_id = ${data.tournamentId} AND user_id = ${userId}`;
 		if (existing.length > 0) { socket.emit('tournament:error', { message: 'Already joined' }); return; }
@@ -2071,6 +2116,13 @@ io.on('connection', (socket) => {
 				return;
 			}
 
+			// Clear messages referencing invites (FK blocks cascade)
+			const inviteIds = await sql`SELECT id FROM tournament_invites WHERE tournament_id = ${data.tournamentId}`;
+			for (const inv of inviteIds) {
+				await sql`UPDATE messages SET tournament_invite_id = NULL WHERE tournament_invite_id = ${inv.id}`;
+			}
+			await sql`DELETE FROM tournament_invites WHERE tournament_id = ${data.tournamentId}`;
+			await sql`DELETE FROM tournament_messages WHERE tournament_id = ${data.tournamentId}`;
 			await sql`DELETE FROM tournament_participants WHERE tournament_id = ${data.tournamentId}`;
 			await sql`DELETE FROM tournaments WHERE id = ${data.tournamentId}`;
 			socket.emit('tournament:cancelled', { tournamentId: data.tournamentId });
@@ -2120,6 +2172,188 @@ io.on('connection', (socket) => {
 		socket.emit('tournament:status', { tournamentId: data.tournamentId, bracket: tourney.bracket });
 	});
 
+	// ── Invite a friend to a private tournament ───────────────────
+	socket.on('tournament:invite', async (data) => {
+		try {
+			const [tournament] = await sql`SELECT * FROM tournaments WHERE id = ${data.tournamentId}`;
+			if (!tournament) { socket.emit('tournament:error', { message: 'Tournament not found' }); return; }
+			if (tournament.status !== 'scheduled') { socket.emit('tournament:error', { message: 'Tournament already started' }); return; }
+			if (!tournament.is_private) { socket.emit('tournament:error', { message: 'Tournament is not private' }); return; }
+			if (tournament.created_by !== userId) { socket.emit('tournament:error', { message: 'Only the creator can invite' }); return; }
+			if (data.userId === userId) { socket.emit('tournament:error', { message: 'Cannot invite yourself' }); return; }
+
+			const existing = await sql`SELECT id FROM tournament_invites WHERE tournament_id = ${data.tournamentId} AND invited_user_id = ${data.userId}`;
+			if (existing.length > 0) { socket.emit('tournament:error', { message: 'Already invited' }); return; }
+
+			const alreadyJoined = await sql`SELECT id FROM tournament_participants WHERE tournament_id = ${data.tournamentId} AND user_id = ${data.userId}`;
+			if (alreadyJoined.length > 0) { socket.emit('tournament:error', { message: 'Already in tournament' }); return; }
+
+			const [invite] = await sql`
+				INSERT INTO tournament_invites (tournament_id, invited_by, invited_user_id)
+				VALUES (${data.tournamentId}, ${userId}, ${data.userId})
+				RETURNING id
+			`;
+
+			const [inviter] = await sql`SELECT username FROM users WHERE id = ${userId}`;
+			const participants = await sql`SELECT id FROM tournament_participants WHERE tournament_id = ${data.tournamentId}`;
+
+			// Insert chat message with invite card
+			await sql`
+				INSERT INTO messages (sender_id, recipient_id, type, content, tournament_invite_id)
+				VALUES (${userId}, ${data.userId}, 'tournament_invite', ${JSON.stringify({
+					tournamentId: data.tournamentId,
+					tournamentName: tournament.name,
+					maxPlayers: tournament.max_players,
+					participantCount: participants.length,
+					speedPreset: tournament.speed_preset,
+					inviterUsername: inviter?.username ?? 'Someone',
+				})}, ${invite.id})
+			`;
+
+			// Notify invited user
+			emitToTournamentUser(data.userId, 'tournament:invited', {
+				inviteId: invite.id,
+				tournamentId: data.tournamentId,
+				tournamentName: tournament.name,
+				invitedBy: userId,
+				inviterUsername: inviter?.username ?? 'Someone',
+				maxPlayers: tournament.max_players,
+				participantCount: participants.length,
+				speedPreset: tournament.speed_preset,
+			});
+
+			socket.emit('tournament:invite-sent', {
+				inviteId: invite.id,
+				tournamentId: data.tournamentId,
+				invitedUserId: data.userId,
+			});
+		} catch (err) {
+			console.error('[Tournament] Invite failed:', err);
+			socket.emit('tournament:error', { message: 'Failed to send invite' });
+		}
+	});
+
+	// ── Accept a tournament invite ────────────────────────────────
+	socket.on('tournament:invite-accept', async (data) => {
+		try {
+			const [invite] = await sql`SELECT * FROM tournament_invites WHERE id = ${data.inviteId}`;
+			if (!invite) { socket.emit('tournament:error', { message: 'Invite not found' }); return; }
+			if (invite.invited_user_id !== userId) { socket.emit('tournament:error', { message: 'Not your invite' }); return; }
+			if (invite.status !== 'pending') { socket.emit('tournament:error', { message: 'Invite already responded' }); return; }
+
+			await sql`UPDATE tournament_invites SET status = 'accepted' WHERE id = ${data.inviteId}`;
+
+			// Auto-join the tournament
+			const [tournament] = await sql`SELECT * FROM tournaments WHERE id = ${invite.tournament_id}`;
+			if (!tournament || tournament.status !== 'scheduled') { socket.emit('tournament:error', { message: 'Tournament no longer available' }); return; }
+
+			const participants = await sql`SELECT id FROM tournament_participants WHERE tournament_id = ${invite.tournament_id}`;
+			if (participants.length >= tournament.max_players) { socket.emit('tournament:error', { message: 'Tournament is full' }); return; }
+
+			await sql`
+				INSERT INTO tournament_participants (tournament_id, user_id, seed, status)
+				VALUES (${invite.tournament_id}, ${userId}, ${participants.length + 1}, 'registered')
+			`;
+
+			socket.emit('tournament:joined', { tournamentId: invite.tournament_id });
+			io.emit('tournament:player-joined', { tournamentId: invite.tournament_id, userId, username });
+
+			// Notify inviter
+			const [invitedUser] = await sql`SELECT username FROM users WHERE id = ${userId}`;
+			emitToTournamentUser(invite.invited_by, 'tournament:invite-accepted', {
+				inviteId: data.inviteId, tournamentId: invite.tournament_id, userId, username: invitedUser?.username ?? 'Someone',
+			});
+		} catch (err) {
+			console.error('[Tournament] Accept invite failed:', err);
+			socket.emit('tournament:error', { message: 'Failed to accept invite' });
+		}
+	});
+
+	// ── Decline a tournament invite ───────────────────────────────
+	socket.on('tournament:invite-decline', async (data) => {
+		try {
+			const [invite] = await sql`SELECT * FROM tournament_invites WHERE id = ${data.inviteId}`;
+			if (!invite || invite.invited_user_id !== userId || invite.status !== 'pending') {
+				socket.emit('tournament:error', { message: 'Cannot decline' }); return;
+			}
+			await sql`UPDATE tournament_invites SET status = 'declined' WHERE id = ${data.inviteId}`;
+
+			const [invitedUser] = await sql`SELECT username FROM users WHERE id = ${userId}`;
+			emitToTournamentUser(invite.invited_by, 'tournament:invite-declined', {
+				inviteId: data.inviteId, tournamentId: invite.tournament_id, userId, username: invitedUser?.username ?? 'Someone',
+			});
+		} catch (err) {
+			console.error('[Tournament] Decline invite failed:', err);
+			socket.emit('tournament:error', { message: 'Failed to decline invite' });
+		}
+	});
+
+	// ── Tournament Chat: send message ─────────────────────────────
+	socket.on('tournament:chat-send', async (data) => {
+		const { tournamentId, content } = data;
+		if (!content || content.trim().length === 0) return;
+		if (content.length > 500) return;
+
+		const participant = await sql`SELECT id FROM tournament_participants WHERE tournament_id = ${tournamentId} AND user_id = ${userId}`;
+		if (participant.length === 0) { socket.emit('tournament:error', { message: 'Only participants can chat' }); return; }
+
+		const [msg] = await sql`
+			INSERT INTO tournament_messages (tournament_id, user_id, content, type)
+			VALUES (${tournamentId}, ${userId}, ${content.trim()}, 'chat')
+			RETURNING id, created_at
+		`;
+
+		const payload = {
+			id: msg.id, tournamentId, userId, username,
+			avatarUrl: socket.data?.avatarUrl ?? null,
+			content: content.trim(), type: 'chat',
+			createdAt: msg.created_at instanceof Date ? msg.created_at.toISOString() : String(msg.created_at),
+		};
+
+		const allParticipants = await sql`SELECT user_id FROM tournament_participants WHERE tournament_id = ${tournamentId}`;
+		for (const p of allParticipants) {
+			const sockets = userSockets.get(Number(p.user_id));
+			if (sockets) { for (const sid of sockets) io.to(sid).emit('tournament:chat-message', payload); }
+		}
+	});
+
+	// ── Tournament Chat: load history ─────────────────────────────
+	socket.on('tournament:chat-history', async (data, callback) => {
+		const { tournamentId, before } = data;
+
+		let rows;
+		if (before) {
+			rows = await sql`
+				SELECT tm.id, tm.tournament_id, tm.user_id, u.username, u.avatar_url, tm.content, tm.type, tm.created_at
+				FROM tournament_messages tm
+				JOIN users u ON u.id = tm.user_id
+				WHERE tm.tournament_id = ${tournamentId} AND tm.id < ${before}
+				ORDER BY tm.id DESC
+				LIMIT 50
+			`;
+		} else {
+			rows = await sql`
+				SELECT tm.id, tm.tournament_id, tm.user_id, u.username, u.avatar_url, tm.content, tm.type, tm.created_at
+				FROM tournament_messages tm
+				JOIN users u ON u.id = tm.user_id
+				WHERE tm.tournament_id = ${tournamentId}
+				ORDER BY tm.id DESC
+				LIMIT 50
+			`;
+		}
+
+		const messages = rows.reverse().map(r => ({
+			id: r.id, tournamentId: Number(r.tournament_id), userId: Number(r.user_id),
+			username: r.username, avatarUrl: r.avatar_url,
+			content: r.content, type: r.type,
+			createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
+		}));
+
+		const result = { messages, hasMore: rows.length === 50 };
+		if (typeof callback === 'function') { callback(result); }
+		else { socket.emit('tournament:chat-history', result); }
+	});
+
 	// ── Disconnect ────────────────────────────────────────────────
 	socket.on('disconnect', () => {
 		socketLog.info({ userId, socketId: socket.id }, 'User disconnected');
@@ -2143,6 +2377,14 @@ io.on('connection', (socket) => {
 			if (invite.fromUserId === userId || invite.toUserId === userId) {
 				clearTimeout(invite.timeout);
 				activeInvites.delete(inviteId);
+			}
+		}
+
+		// Spectator cleanup on disconnect
+		for (const [roomId, room] of activeRooms) {
+			if (room.spectatorSockets && room.spectatorSockets.has(socket.id)) {
+				room.removeSpectator(socket.id);
+				broadcastRoomEvent(roomId, 'game:spectator-count', { count: room.spectatorCount });
 			}
 		}
 

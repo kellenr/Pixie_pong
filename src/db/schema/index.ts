@@ -172,6 +172,8 @@ export const tournamentsRelations = relations(tournaments, ({ one, many }) => ({
 		relationName: 'wonTournaments'
 	}),
 	participants: many(tournamentParticipants, { relationName: 'tournamentEntries' }),
+	invites: many(tournamentInvites, { relationName: 'tournamentInvites' }),
+	tournamentMessages: many(tournamentMessages, { relationName: 'tournamentMessages' }),
 	analyticsEvents: many(analytics, { relationName: 'tournamentAnalytics' }),
 }));
 

@@ -92,6 +92,7 @@ export function destroyRoom(roomId: string): void {
  * This runs inside a transaction so everything succeeds or fails together.
  */
 async function handleGameEnd(result: GameResult): Promise<void> {
+	console.log(`[GameRoom] handleGameEnd called for room ${result.roomId}`);
 	// Clear playerRoomMap immediately so players can challenge again
 	// while the async DB save is still running
 	playerRoomMap.delete(result.player1.userId);
@@ -188,13 +189,12 @@ async function handleGameEnd(result: GameResult): Promise<void> {
 				}
 			}
 
-			// Check if this was a tournament match
+			// Check if this was a tournament match — accumulate XP inside the transaction,
+			// but call advanceWinner AFTER the transaction commits to avoid deadlocks
+			// (advanceWinner uses the global db connection and updates the same rows)
 			if (result.roomId.startsWith('tournament-')) {
 				const parts = result.roomId.split('-');
-				// Format: tournament-{id}-r{round}-m{matchIndex}
-				const tournamentId = Number(parts[1]);
-				const round = Number(parts[2].replace('r', ''));
-				const matchIndex = Number(parts[3].replace('m', ''));
+				const tId = Number(parts[1]);
 
 				// Accumulate XP earned in this tournament for both players
 				for (const [uid, progression] of [[result.player1.userId, p1Progression], [result.player2.userId, p2Progression]] as const) {
@@ -202,17 +202,11 @@ async function handleGameEnd(result: GameResult): Promise<void> {
 						await tx.update(tournamentParticipants).set({
 							xp_earned: sql`${tournamentParticipants.xp_earned} + ${progression.xpEarned}`,
 						}).where(and(
-							eq(tournamentParticipants.tournament_id, tournamentId),
+							eq(tournamentParticipants.tournament_id, tId),
 							eq(tournamentParticipants.user_id, uid),
 						));
 					}
 				}
-
-				const winnerScore = result.player1.userId === result.winnerId
-				? result.player1.score : result.player2.score;
-			const loserScore = result.player1.userId === result.loserId
-				? result.player1.score : result.player2.score;
-			await advanceWinner(tournamentId, round, matchIndex, result.winnerId, result.loserId, winnerScore, loserScore);
 			}
 
 			await tx.insert(messages).values({
@@ -224,6 +218,20 @@ async function handleGameEnd(result: GameResult): Promise<void> {
 			});
 		});
 		console.log(`[GameRoom] Match saved: ${result.winnerUsername} won ${result.roomId}`);
+
+		// Advance tournament AFTER transaction commits — must be outside the
+		// transaction to avoid deadlocking on tournament_participants rows
+		if (result.roomId.startsWith('tournament-')) {
+			const parts = result.roomId.split('-');
+			const tournamentId = Number(parts[1]);
+			const round = Number(parts[2].replace('r', ''));
+			const matchIndex = Number(parts[3].replace('m', ''));
+			const winnerScore = result.player1.userId === result.winnerId
+				? result.player1.score : result.player2.score;
+			const loserScore = result.player1.userId === result.loserId
+				? result.player1.score : result.player2.score;
+			await advanceWinner(tournamentId, round, matchIndex, result.winnerId, result.loserId, winnerScore, loserScore);
+		}
 	} catch (err) {
 		console.error('[GameRoom] Failed to save match:', err);
 	} finally {

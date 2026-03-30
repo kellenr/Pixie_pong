@@ -55,9 +55,11 @@
 		align-items: center;
 		justify-content: space-between;
 		padding: 0.75rem 1rem;
+		gap: 14px;
+		background: var(--card, #16213e);
+		border: 1px solid rgba(255, 255, 255, 0.06);
 		border-radius: 0.75rem;
-		border: 1px solid transparent;
-		transition: all 0.15s;
+		transition: background-color 0.15s, border-color 0.15s;
 	}
 	.friend-card:hover {
 		background: rgba(255, 255, 255, 0.03);
