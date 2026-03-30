@@ -1,4 +1,5 @@
 import { pgTable, serial, integer, text, varchar, timestamp, boolean } from 'drizzle-orm/pg-core';
+import { tournamentInvites } from './tournament_invites';
 import { users } from './users';
 import { games } from './games';
 
@@ -11,6 +12,8 @@ export const messages = pgTable('messages', {
 		.references(() => users.id, { onDelete: 'cascade' }),
 	game_id: integer('game_id')
 		.references(() => games.id, { onDelete: 'cascade' }),
+	tournament_invite_id: integer('tournament_invite_id')
+		.references(() => tournamentInvites.id),
 	type: varchar('type', { length: 30 }).notNull().default('chat'),
 	content: text('content').notNull(),
 	is_read: boolean('is_read').notNull().default(false),

@@ -7,6 +7,8 @@ import {
 	cancelTournament,
 	startTournament,
 	getActiveTournament,
+	inviteToTournament,
+	respondToInvite,
 } from '../../tournament/TournamentManager';
 
 export function registerTournamentHandlers(socket: Socket) {
@@ -18,6 +20,7 @@ export function registerTournamentHandlers(socket: Socket) {
 		name: string;
 		maxPlayers: number;  // 4, 8, or 16
 		settings?: { speedPreset: string; winScore: number };
+		isPrivate?: boolean;
 	}) => {
 		if (!data.name?.trim()) {
 			socket.emit('tournament:error', { message: 'Tournament name is required' });
@@ -29,7 +32,7 @@ export function registerTournamentHandlers(socket: Socket) {
 		}
 
 		const settings = data.settings ?? { speedPreset: 'normal', winScore: 5 };
-		const id = await createTournament(data.name.trim(), userId, data.maxPlayers, settings);
+		const id = await createTournament(data.name.trim(), userId, data.maxPlayers, settings, data.isPrivate ?? false);
 
 		// Auto-join the creator
 		await joinTournament(id, userId);
@@ -116,5 +119,46 @@ export function registerTournamentHandlers(socket: Socket) {
 			tournamentId: data.tournamentId,
 			bracket: tourney.bracket,
 		});
+	});
+
+	// ── Invite a friend to a private tournament ───────────
+	socket.on('tournament:invite', async (data: { tournamentId: number; userId: number }) => {
+		const result = await inviteToTournament(data.tournamentId, userId, data.userId);
+		if (!result.success) {
+			socket.emit('tournament:error', { message: result.error ?? 'Cannot invite' });
+			return;
+		}
+		socket.emit('tournament:invite-sent', {
+			inviteId: result.inviteId,
+			tournamentId: data.tournamentId,
+			invitedUserId: data.userId,
+		});
+	});
+
+	// ── Accept a tournament invite ────────────────────────
+	socket.on('tournament:invite-accept', async (data: { inviteId: number }) => {
+		const result = await respondToInvite(data.inviteId, userId, true);
+		if (!result.success) {
+			socket.emit('tournament:error', { message: result.error ?? 'Cannot accept' });
+			return;
+		}
+		socket.emit('tournament:joined', { tournamentId: result.tournamentId });
+
+		// Broadcast so lobby updates
+		const io = getIO();
+		io.emit('tournament:player-joined', {
+			tournamentId: result.tournamentId,
+			userId,
+			username,
+		});
+	});
+
+	// ── Decline a tournament invite ───────────────────────
+	socket.on('tournament:invite-decline', async (data: { inviteId: number }) => {
+		const result = await respondToInvite(data.inviteId, userId, false);
+		if (!result.success) {
+			socket.emit('tournament:error', { message: result.error ?? 'Cannot decline' });
+			return;
+		}
 	});
 }

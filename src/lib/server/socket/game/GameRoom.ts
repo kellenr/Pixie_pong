@@ -55,6 +55,7 @@ export class GameRoom {
 	private disconnectTimers = new Map<number, ReturnType<typeof setTimeout>>();
 	private destroyed = false;
 	private gameEnded = false;
+	private spectatorSockets: Set<string> = new Set();
 	private lastTickCount = 0;
 
 	constructor(options: GameRoomOptions) {
@@ -104,7 +105,7 @@ export class GameRoom {
 		this.state = createGameState();
 		// ENSURE initialization of settings matches state
 		this.state.powerUpsEnabled = !!this.settings.powerUps;
-		
+
 		console.log(`[GameRoom] Initialized room ${this.roomId} | Power-ups from settings: ${this.settings.powerUps} | State enabled: ${this.state.powerUpsEnabled} | Win score: ${this.settings.winScore}`);
 		if (this.settings.powerUps) {
 			console.log(`[GameRoom] Power-ups are ON. Initial cooldown: ${this.state.powerUpCooldown}s`);

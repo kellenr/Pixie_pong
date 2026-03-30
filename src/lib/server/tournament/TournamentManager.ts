@@ -1,5 +1,5 @@
 import { db } from '$lib/server/db';
-import { tournaments, tournamentParticipants } from '$lib/server/db/schema';
+import { tournaments, tournamentParticipants, tournamentInvites, messages } from '$lib/server/db/schema';
 import { users } from '$lib/server/db/schema';
 import { eq, and, count } from 'drizzle-orm';
 import {
@@ -114,6 +114,7 @@ export async function createTournament(
 	createdBy: number,
 	maxPlayers: number,
 	settings: { speedPreset: string; winScore: number },
+	isPrivate: boolean = false,
 ): Promise<number> {
 	const [tournament] = await db
 		.insert(tournaments)
@@ -125,6 +126,7 @@ export async function createTournament(
 			max_players: maxPlayers,
 			speed_preset: settings.speedPreset,
 			win_score: settings.winScore,
+			is_private: isPrivate,
 		})
 		.returning();
 	return tournament.id;
@@ -141,6 +143,22 @@ export async function joinTournament(
 	if (!tournament) return { success: false, error: 'Tournament not found' };
 	if (tournament.status !== 'scheduled')
 		return { success: false, error: 'Tournament already started' };
+	// Private tournament — check for invite
+	if (tournament.is_private) {
+		const [invite] = await db
+			.select()
+			.from(tournamentInvites)
+			.where(
+				and(
+					eq(tournamentInvites.tournament_id, tournamentId),
+					eq(tournamentInvites.invited_user_id, userId),
+				),
+			);
+		// Creator can always join (they created it)
+		if (!invite && tournament.created_by !== userId) {
+			return { success: false, error: 'Invite required for private tournament' };
+		}
+	}
 
 	// Check if already joined
 	const [existing] = await db
@@ -749,6 +767,152 @@ export async function advanceWinner(
 			bracket: tourney.bracket,
 		});
 	}
+}
+
+// ── Tournament Invites ──────────────────────────────────
+export async function inviteToTournament(
+	tournamentId: number,
+	invitedBy: number,
+	invitedUserId: number,
+): Promise<{ success: boolean; inviteId?: number; error?: string }> {
+	// Validate tournament exists and is scheduled
+	const [tournament] = await db
+		.select()
+		.from(tournaments)
+		.where(eq(tournaments.id, tournamentId));
+	if (!tournament) return { success: false, error: 'Tournament not found' };
+	if (tournament.status !== 'scheduled')
+		return { success: false, error: 'Tournament already started' };
+	if (!tournament.is_private)
+		return { success: false, error: 'Tournament is not private' };
+
+	// Only creator can invite
+	if (tournament.created_by !== invitedBy)
+		return { success: false, error: 'Only the creator can invite' };
+
+	// Can't invite yourself
+	if (invitedBy === invitedUserId)
+		return { success: false, error: 'Cannot invite yourself' };
+
+	// Check if already invited
+	const [existing] = await db
+		.select()
+		.from(tournamentInvites)
+		.where(
+			and(
+				eq(tournamentInvites.tournament_id, tournamentId),
+				eq(tournamentInvites.invited_user_id, invitedUserId),
+			),
+		);
+	if (existing) return { success: false, error: 'Already invited' };
+
+	// Check if already a participant
+	const [alreadyJoined] = await db
+		.select()
+		.from(tournamentParticipants)
+		.where(
+			and(
+				eq(tournamentParticipants.tournament_id, tournamentId),
+				eq(tournamentParticipants.user_id, invitedUserId),
+			),
+		);
+	if (alreadyJoined) return { success: false, error: 'Already in tournament' };
+
+	// Insert invite
+	const [invite] = await db
+		.insert(tournamentInvites)
+		.values({
+			tournament_id: tournamentId,
+			invited_by: invitedBy,
+			invited_user_id: invitedUserId,
+		})
+		.returning();
+
+	// Get invite details for the chat message
+	const [inviter] = await db
+		.select({ username: users.username })
+		.from(users)
+		.where(eq(users.id, invitedBy));
+
+	// Get participant count
+	const participantRows = await db
+		.select()
+		.from(tournamentParticipants)
+		.where(eq(tournamentParticipants.tournament_id, tournamentId));
+
+	// Insert special chat message with the invite card
+	await db.insert(messages).values({
+		sender_id: invitedBy,
+		recipient_id: invitedUserId,
+		type: 'tournament_invite',
+		content: JSON.stringify({
+			tournamentId,
+			tournamentName: tournament.name,
+			maxPlayers: tournament.max_players,
+			participantCount: participantRows.length,
+			speedPreset: tournament.speed_preset,
+			inviterUsername: inviter?.username ?? 'Someone',
+		}),
+		tournament_invite_id: invite.id,
+	});
+
+	// Notify the invited user in real-time
+	emitToUser(invitedUserId, 'tournament:invited', {
+		inviteId: invite.id,
+		tournamentId,
+		tournamentName: tournament.name,
+		invitedBy,
+		inviterUsername: inviter?.username ?? 'Someone',
+		maxPlayers: tournament.max_players,
+		participantCount: participantRows.length,
+		speedPreset: tournament.speed_preset,
+	});
+
+	return { success: true, inviteId: invite.id };
+}
+
+export async function respondToInvite(
+	inviteId: number,
+	userId: number,
+	accept: boolean,
+): Promise<{ success: boolean; tournamentId?: number; error?: string }> {
+	const [invite] = await db
+		.select()
+		.from(tournamentInvites)
+		.where(eq(tournamentInvites.id, inviteId));
+	if (!invite) return { success: false, error: 'Invite not found' };
+	if (invite.invited_user_id !== userId)
+		return { success: false, error: 'Not your invite' };
+	if (invite.status !== 'pending')
+		return { success: false, error: 'Invite already responded' };
+
+	// Update invite status
+	await db
+		.update(tournamentInvites)
+		.set({ status: accept ? 'accepted' : 'declined' })
+		.where(eq(tournamentInvites.id, inviteId));
+
+	if (accept) {
+		// Auto-join the tournament
+		const result = await joinTournament(invite.tournament_id, userId);
+		if (!result.success)
+			return { success: false, error: result.error };
+	}
+
+	// Notify the inviter
+	const [invitedUser] = await db
+		.select({ username: users.username })
+		.from(users)
+		.where(eq(users.id, userId));
+
+	emitToUser(invite.invited_by, accept ? 'tournament:invite-accepted' : 'tournament:invite-declined', {
+		inviteId,
+		tournamentId: invite.tournament_id,
+		userId,
+		username: invitedUser?.username ?? 'Someone',
+	});
+
+	return { success: true, tournamentId: invite.tournament_id };
 }
 
 export function getActiveTournament(id: number) {
