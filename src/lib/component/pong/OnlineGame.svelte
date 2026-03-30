@@ -30,9 +30,10 @@
 		themeId?: string;
 		ballSkinId?: string;
 		effectsConfig?: EffectsConfig;
+		spectatorMode?: boolean;
 	};
 
-	let { roomId, side, player1, player2, onGameOver, themeId, ballSkinId, effectsConfig }: Props = $props();
+	let { roomId, side, player1, player2, onGameOver, themeId, ballSkinId, effectsConfig, spectatorMode = false }: Props = $props();
 
 	const theme = $derived(getTheme(themeId ?? 'classic'));
 	const ballSkin = $derived(getBallSkin(ballSkinId ?? 'default'));
@@ -78,6 +79,7 @@
 	}
 
 	function handleKeyDown(e: KeyboardEvent) {
+		if (spectatorMode) return;
 		// Don't capture game keys when typing in chat input
 		const tag = (e.target as HTMLElement)?.tagName;
 		if (tag === 'INPUT' || tag === 'TEXTAREA') return;
@@ -91,6 +93,7 @@
 	}
 
 	function handleKeyUp(e: KeyboardEvent) {
+		if (spectatorMode) return;
 		const tag = (e.target as HTMLElement)?.tagName;
 		if (tag === 'INPUT' || tag === 'TEXTAREA') return;
 
@@ -358,39 +361,39 @@
 	}
 
 	function drawCountdown(ctx: CanvasRenderingContext2D, state: GameStateSnapshot) {
-	ctx.fillStyle = 'rgba(10, 10, 26, 0.6)';
-	ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+		ctx.fillStyle = 'rgba(10, 10, 26, 0.6)';
+		ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-	ctx.fillStyle = state.countdownDisplay === 'GO!' ? '#ff6b9d' : '#ffffff';
-	ctx.shadowColor = state.countdownDisplay === 'GO!' ? '#ff6b9d' : '#ffffff';
-	ctx.shadowBlur = 20;
-	ctx.font = "72px 'Press Start 2P', monospace";
-	ctx.textAlign = 'center';
-	ctx.textBaseline = 'middle';
-	ctx.fillText(state.countdownDisplay, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
-	ctx.shadowBlur = 0;
-	ctx.textBaseline = 'alphabetic';
+		ctx.fillStyle = state.countdownDisplay === 'GO!' ? '#ff6b9d' : '#ffffff';
+		ctx.shadowColor = state.countdownDisplay === 'GO!' ? '#ff6b9d' : '#ffffff';
+		ctx.shadowBlur = 20;
+		ctx.font = "72px 'Press Start 2P', monospace";
+		ctx.textAlign = 'center';
+		ctx.textBaseline = 'middle';
+		ctx.fillText(state.countdownDisplay, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
+		ctx.shadowBlur = 0;
+		ctx.textBaseline = 'alphabetic';
 	}
 
 	function drawGameOver(ctx: CanvasRenderingContext2D, state: GameStateSnapshot) {
-	ctx.fillStyle = 'rgba(10, 10, 26, 0.85)';
-	ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+		ctx.fillStyle = 'rgba(10, 10, 26, 0.85)';
+		ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-	ctx.fillStyle = '#ffffff';
-	ctx.font = "36px 'Press Start 2P', monospace";
-	ctx.textAlign = 'center';
-	ctx.fillText('GAME OVER', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 70);
+		ctx.fillStyle = '#ffffff';
+		ctx.font = "36px 'Press Start 2P', monospace";
+		ctx.textAlign = 'center';
+		ctx.fillText('GAME OVER', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 70);
 
-	ctx.fillStyle = '#ff6b9d';
-	ctx.shadowColor = '#ff6b9d';
-	ctx.shadowBlur = 20;
-	ctx.font = "24px 'Press Start 2P', monospace";
-	ctx.fillText(`${state.winner} Wins!`, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 15);
-	ctx.shadowBlur = 0;
+		ctx.fillStyle = '#ff6b9d';
+		ctx.shadowColor = '#ff6b9d';
+		ctx.shadowBlur = 20;
+		ctx.font = "24px 'Press Start 2P', monospace";
+		ctx.fillText(`${state.winner} Wins!`, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 15);
+		ctx.shadowBlur = 0;
 
-	ctx.fillStyle = '#9ca3af';
-	ctx.font = "18px 'Inter', sans-serif";
-	ctx.fillText(`${state.score1}  —  ${state.score2}`, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 30);
+		ctx.fillStyle = '#9ca3af';
+		ctx.font = "18px 'Inter', sans-serif";
+		ctx.fillText(`${state.score1}  —  ${state.score2}`, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 30);
 	}
 </script>
 

@@ -389,6 +389,7 @@ export class GameRoom {
 			clearTimeout(timer);
 		}
 		this.disconnectTimers.clear();
+		this.spectatorSockets.clear();
 	}
 
 	// ── Helpers ───────────────────────────────────────────────
@@ -403,6 +404,22 @@ export class GameRoom {
 
 	getState(): GameStateSnapshot {
 		return this.getSnapshot();
+	}
+
+	addSpectator(socketId: string): void {
+		this.spectatorSockets.add(socketId);
+	}
+
+	removeSpectator(socketId: string): void {
+		this.spectatorSockets.delete(socketId);
+	}
+
+	get spectatorCount(): number {
+		return this.spectatorSockets.size;
+	}
+
+	get spectators(): Set<string> {
+		return this.spectatorSockets;
 	}
 
 	private getPlayer(userId: number): RoomPlayer | null {

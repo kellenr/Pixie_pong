@@ -46,6 +46,8 @@
 	let gameMessageInput = $state('');
 	let gameMessagesEl: HTMLDivElement | undefined = $state();
 	let isFriendMatch = $state(false);
+	let isSpectator = $state(false);
+	let spectatorCount = $state(0);
 
 	// Progression state for level-up modal
 	let showLevelUpModal = $state(false);
@@ -78,6 +80,10 @@
 		gameReady = false;
 		gameOverResult = null;
 		tournamentEventData = null;
+
+		// Check if spectating via URL param
+		const url = new URL(window.location.href);
+		isSpectator = url.searchParams.get('spectate') === 'true';
 
 		const socket = getSocket();
 		if (!socket?.connected) {
@@ -172,6 +178,22 @@
 			}
 		}
 
+		function handleSpectating(specData: {
+			roomId: string;
+			player1: { userId: number; username: string };
+			player2: { userId: number; username: string };
+			spectatorCount: number;
+		}) {
+			player1 = { ...specData.player1, displayName: null, avatarUrl: null };
+			player2 = { ...specData.player2, displayName: null, avatarUrl: null };
+			spectatorCount = specData.spectatorCount;
+			gameReady = true;
+		}
+
+		function handleSpectatorCount(data: { count: number }) {
+		spectatorCount = data.count;
+		}
+
 		// Tournament-specific event handlers
 		function handleTournamentAdvanced(eventData: any) {
 			if (eventData.tournamentId !== tournamentId) return;
@@ -204,8 +226,17 @@
 			socket.on('tournament:finished', handleTournamentFinished);
 		}
 
+		if (isSpectator) {
+			socket.on('game:spectating', handleSpectating);
+			socket.on('game:spectator-count', handleSpectatorCount);
+		}
+
 		// Tell the server we're here
-		socket.emit('game:join-room', { roomId });
+		if (isSpectator) {
+			socket.emit('game:spectate', { roomId });
+		} else {
+			socket.emit('game:join-room', { roomId });
+		}
 
 		// Cleanup: runs when roomId changes or component is destroyed
 		return () => {
@@ -220,6 +251,12 @@
 				socket.off('tournament:advanced', handleTournamentAdvanced);
 				socket.off('tournament:eliminated', handleTournamentEliminated);
 				socket.off('tournament:finished', handleTournamentFinished);
+			}
+
+			if (isSpectator) {
+				socket.off('game:spectating', handleSpectating);
+				socket.off('game:spectator-count', handleSpectatorCount);
+				socket.emit('game:stop-spectating', { roomId });
 			}
 		};
 	});
@@ -266,7 +303,7 @@
 		setWaiting({
 			you: { username: data.username, avatarUrl: myPlayer.avatarUrl, displayName: myPlayer.displayName },
 			opponent: { username: opponentName, avatarUrl: opponentPlayer.avatarUrl, displayName: opponentPlayer.displayName },
-			settings: { speedPreset: gameOverResult.settings.speedPreset as 'chill' | 'normal' | 'fast', winScore: gameOverResult.settings.winScore, mode: 'online' },
+			settings: { speedPreset: gameOverResult.settings.speedPreset as 'chill' | 'normal' | 'fast', winScore: gameOverResult.settings.winScore, powerUps: gameOverResult.settings.powerUps ?? true, mode: 'online' },
 			totalTime: 30,
 		});
 		goto('/play/online/waiting');
@@ -417,23 +454,42 @@
 				<div class="player-avatar p2">👾</div>
 			</div>
 		</div>
+
+		{#if isSpectator}
+			<!-- Spectator overlay -->
+			<div class="spectator-badge">
+				<span>SPECTATING</span>
+				{#if spectatorCount > 1}
+					<span class="viewer-count">👁 {spectatorCount} viewers</span>
+				{/if}
+			</div>
+		{/if}
+
 		<OnlineGame
 			roomId={data.roomId}
-			{side}
+			side={isSpectator ? 'left' : side}
 			{player1}
 			{player2}
 			onGameOver={handleGameOver}
+			spectatorMode={isSpectator}
 			themeId={prefs.theme}
 			ballSkinId={prefs.ballSkin}
 			effectsConfig={{ preset: prefs.effectsPreset, custom: prefs.effectsCustom }}
 		/>
-		<div class="status-bar">
-			<span class="vs-label">{player1.username} vs {player2.username}</span>
-			<button class="forfeit-btn" onclick={goBack}>Forfeit</button>
-		</div>
+		{#if !isSpectator}
+			<div class="status-bar">
+				<span class="vs-label">{player1.username} vs {player2.username}</span>
+				<button class="forfeit-btn" onclick={goBack}>Forfeit</button>
+			</div>
+		{:else}
+			<div class="status-bar">
+				<span class="vs-label">{player1.username} vs {player2.username}</span>
+				<button class="back-btn" onclick={goBack}>Leave</button>
+			</div>
+		{/if}
 
 		<!-- In-game chat (only between friends) -->
-		{#if isFriendMatch}
+		{#if isFriendMatch && !isSpectator}
 			<div class="ingame-chat">
 				{#if gameMessages.length > 0}
 					<div class="ingame-messages" bind:this={gameMessagesEl}>
@@ -758,5 +814,28 @@
 		text-transform: uppercase;
 		letter-spacing: 0.15em;
 		flex-shrink: 0;
+	}
+
+	.spectator-badge {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		background: rgba(251, 191, 36, 0.1);
+		border: 1px solid rgba(251, 191, 36, 0.25);
+		padding: 0.4rem 1rem;
+		border-radius: 999px;
+		font-size: 0.75rem;
+		font-weight: 700;
+		color: #fbbf24;
+		text-transform: uppercase;
+		letter-spacing: 0.1em;
+	}
+
+	.viewer-count {
+		font-weight: 500;
+		font-size: 0.7rem;
+		color: #9ca3af;
+		text-transform: none;
+		letter-spacing: 0;
 	}
 </style>

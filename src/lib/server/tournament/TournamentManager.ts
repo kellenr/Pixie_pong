@@ -1,5 +1,5 @@
 import { db } from '$lib/server/db';
-import { tournaments, tournamentParticipants, tournamentInvites, messages } from '$lib/server/db/schema';
+import { tournaments, tournamentParticipants, tournamentInvites, messages, tournamentMessages } from '$lib/server/db/schema';
 import { users } from '$lib/server/db/schema';
 import { eq, and, count } from 'drizzle-orm';
 import {
@@ -45,6 +45,15 @@ function tournamentBroadcastState(
 		io.to(sid).emit('game:state', state);
 	for (const sid of room.player2.socketIds)
 		io.to(sid).emit('game:state', state);
+	// Spectators
+	for (const sid of room.spectators)
+		io.to(sid).emit('game:state', state);
+}
+
+function ordinal(n: number): string {
+	const s = ['th', 'st', 'nd', 'rd'];
+	const v = n % 100;
+	return n + (s[(v - 20) % 10] || s[v] || s[0]);
 }
 
 function tournamentBroadcastEvent(
@@ -57,6 +66,8 @@ function tournamentBroadcastEvent(
 	if (!room) return;
 	for (const sid of room.player1.socketIds) io.to(sid).emit(event, data);
 	for (const sid of room.player2.socketIds) io.to(sid).emit(event, data);
+	// Spectators
+	for (const sid of room.spectators) io.to(sid).emit(event, data);
 }
 
 /** Emit event to all participants of a tournament */
@@ -105,6 +116,39 @@ function getRoundName(round: number, totalRounds: number): string {
 	if (fromFinal === 1) return 'Semifinals';
 	if (fromFinal === 2) return 'Quarterfinals';
 	return `Round ${round}`;
+}
+
+/** Insert a system message into tournament chat and broadcast it */
+async function insertTournamentSystemMessage(
+	tournamentId: number,
+	content: string,
+): Promise<void> {
+	const tourney = activeTournaments.get(tournamentId);
+ 	if (!tourney) return;
+	const [msg] = await db.insert(tournamentMessages).values({
+		tournament_id: tournamentId,
+		user_id: tourney.createdBy, // Use creator as the system message author
+		content,
+		type: 'system',
+	}).returning();
+
+	const io = getIO();
+	const payload = {
+		id: msg.id,
+		tournamentId,
+		userId: tourney.createdBy,
+		username: 'System',
+		avatarUrl: null,
+		content,
+		type: 'system',
+		createdAt: msg.created_at instanceof Date ? msg.created_at.toISOString() : String(msg.created_at),
+	};
+	for (const [uid] of tourney.playerMap) {
+		const sockets = userSockets.get(uid);
+		if (sockets) {
+			for (const sid of sockets) io.to(sid).emit('tournament:chat-message', payload);
+		}
+	}
 }
 
 // ── Public API ───────────────────────────────────────────
@@ -452,6 +496,10 @@ async function startRoundMatches(
 		tournamentId,
 		bracket: tourney.bracket,
 	});
+
+	// System message in tournament chat
+	const roundName = getRoundName(round, tourney.bracket.length);
+	await insertTournamentSystemMessage(tournamentId, `${roundName} is starting!`);
 }
 
 /**
@@ -566,6 +614,13 @@ export async function advanceWinner(
 				eq(tournamentParticipants.user_id, loserId),
 			),
 		);
+
+	// System message: player eliminated
+	const loserUsername = tourney.playerMap.get(loserId) ?? 'Player';
+	await insertTournamentSystemMessage(
+			tournamentId,
+			`${loserUsername} eliminated (${ordinal(placement)} place)`,
+	);
 
 	// Place winner in next round
 	const nextRound = tourney.bracket.find((r) => r.round === round + 1);
@@ -705,6 +760,11 @@ export async function advanceWinner(
 					eq(tournamentParticipants.user_id, winnerId),
 				),
 			);
+		const winnerUsername = tourney.playerMap.get(winnerId) ?? 'Player';
+		await insertTournamentSystemMessage(
+			tournamentId,
+			`${winnerUsername} wins the tournament!`,
+		);
 
 		// Build podium (top 3)
 		const podiumParticipants = await db

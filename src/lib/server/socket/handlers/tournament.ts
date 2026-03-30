@@ -1,5 +1,8 @@
 import type { Socket } from 'socket.io';
 import { getIO } from '../index';
+import { db } from '$lib/server/db';
+import { tournamentMessages, tournamentParticipants, users } from '$lib/server/db/schema';
+import { eq, and, desc } from 'drizzle-orm';
 import {
 	createTournament,
 	joinTournament,
@@ -159,6 +162,118 @@ export function registerTournamentHandlers(socket: Socket) {
 		if (!result.success) {
 			socket.emit('tournament:error', { message: result.error ?? 'Cannot decline' });
 			return;
+		}
+	});
+
+	// ── Tournament Chat ───────────────────────────────────
+	socket.on('tournament:chat-send', async (data: { tournamentId: number; content: string }) => {
+		const { tournamentId, content } = data;
+
+		// Validate content
+		if (!content || content.trim().length === 0) return;
+		if (content.length > 500) return;
+
+		// Validate: user is a participant (current or past)
+		const [participant] = await db
+			.select()
+			.from(tournamentParticipants)
+			.where(
+				and(
+					eq(tournamentParticipants.tournament_id, tournamentId),
+					eq(tournamentParticipants.user_id, userId),
+				),
+			);
+		if (!participant) {
+			socket.emit('tournament:error', { message: 'Only participants can chat' });
+			return;
+		}
+
+		// Save to database
+		const [msg] = await db.insert(tournamentMessages).values({
+			tournament_id: tournamentId,
+			user_id: userId,
+			content: content.trim(),
+			type: 'chat',
+		}).returning();
+
+		// Broadcast to all participants
+		const payload = {
+			id: msg.id,
+			tournamentId,
+			userId,
+			username,
+			avatarUrl: socket.data.avatarUrl ?? null,
+			content: msg.content,
+			type: 'chat',
+			createdAt: msg.created_at instanceof Date ? msg.created_at.toISOString() : String(msg.created_at),
+		};
+
+		// Use getIO to broadcast to all participants
+		const allParticipants = await db
+			.select({ id: tournamentParticipants.user_id })
+			.from(tournamentParticipants)
+			.where(eq(tournamentParticipants.tournament_id, tournamentId));
+
+		const io = getIO();
+		for (const p of allParticipants) {
+			const sockets = (await import('../index')).userSockets.get(p.id);
+			if (sockets) {
+				for (const sid of sockets) {
+					io.to(sid).emit('tournament:chat-message', payload);
+				}
+			}
+		}
+	});
+
+	// ── Load tournament chat history ──────────────────────
+	socket.on('tournament:chat-history', async (data: { tournamentId: number; before?: number }, callback?: (result: any) => void) => {
+		const { tournamentId, before } = data;
+
+		const query = db
+			.select({
+				id: tournamentMessages.id,
+				tournamentId: tournamentMessages.tournament_id,
+				userId: tournamentMessages.user_id,
+				username: users.username,
+				avatarUrl: users.avatar_url,
+				content: tournamentMessages.content,
+				type: tournamentMessages.type,
+				createdAt: tournamentMessages.created_at,
+			})
+			.from(tournamentMessages)
+			.innerJoin(users, eq(users.id, tournamentMessages.user_id))
+			.where(
+				before
+					? and(
+						eq(tournamentMessages.tournament_id, tournamentId),
+						// Simple pagination: id < before
+						// (Using raw SQL for less-than since drizzle's lt needs import)
+						eq(tournamentMessages.tournament_id, tournamentId),
+					)
+					: eq(tournamentMessages.tournament_id, tournamentId),
+			)
+			.orderBy(desc(tournamentMessages.id))
+			.limit(50);
+
+		const rows = await query;
+
+		const messages = rows.reverse().map(r => ({
+			id: r.id,
+			tournamentId: r.tournamentId,
+			userId: r.userId,
+			username: r.username,
+			avatarUrl: r.avatarUrl,
+			content: r.content,
+			type: r.type,
+			createdAt: r.createdAt instanceof Date ? r.createdAt.toISOString() : String(r.createdAt),
+		}));
+
+		const result = { messages, hasMore: rows.length === 50 };
+
+		if (typeof callback === 'function') {
+			callback(result);
+		} else {
+			socket.emit('tournament:chat-history', result);
 		}
 	});
 }

@@ -10,6 +10,7 @@
 	import { timeAgo, ordinal } from '$lib/utils/format_date';
 	import InviteFriendsModal from '$lib/component/tournament/InviteFriendsModal.svelte';
 	import Starfield from '$lib/component/effect/Starfield.svelte';
+	import TournamentChat from '$lib/component/tournament/TournamentChat.svelte';
 	import NoiseGrain from '$lib/component/effect/NoiseGrain.svelte';
 
 	let { data } = $props();
@@ -422,8 +423,17 @@
 				currentUserId={data.userId}
 				tournamentName={tournament.name}
 				currentRound={tournament.currentRound ?? 1}
+				tournamentId={tournament.id}
 			/>
 		</div>
+	{/if}
+
+	{#if tournament.status !== 'scheduled'}
+		<TournamentChat
+			tournamentId={tournament.id}
+			currentUserId={data.userId}
+			{isParticipant}
+		/>
 	{/if}
 
 	{#if tournament.status !== 'scheduled' && participants.length > 0}

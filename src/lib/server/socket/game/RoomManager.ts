@@ -56,6 +56,17 @@ export function createRoom(
 		return room;
 }
 
+export function removeSpectatorFromAll(socketId: string): Array<{ roomId: string; count: number }> {
+	const affected: Array<{ roomId: string; count: number }> = [];
+	for (const [roomId, room] of activeRooms) {
+		if (room.spectators.has(socketId)) {
+			room.removeSpectator(socketId);
+			affected.push({ roomId, count: room.spectatorCount });
+		}
+	}
+	return affected;
+}
+
 /** Remove a room and unregister both players */
 export function destroyRoom(roomId: string): void {
 	const room = activeRooms.get(roomId);

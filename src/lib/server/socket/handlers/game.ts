@@ -9,6 +9,7 @@ import {
 	getRoomByPlayer,
 	destroyRoom,
 	isPlayerInGame,
+	removeSpectatorFromAll,
 } from '../game/RoomManager';
 import type { GameStateSnapshot } from '$lib/types/game';
 import {
@@ -53,6 +54,10 @@ function broadcastState(roomId: string, state: GameStateSnapshot): void {
 	for (const sid of room.player2.socketIds) {
 		io.to(sid).emit('game:state', state);
 	}
+	// Spectators
+	for (const sid of room.spectators) {
+		io.to(sid).emit('game:state', state);
+	}
 }
 /** Broadcast a game event to all sockets of both players */
 function broadcastEvent(roomId: string, event: string, data: any): void {
@@ -63,6 +68,10 @@ function broadcastEvent(roomId: string, event: string, data: any): void {
 		io.to(sid).emit(event, data);
 	}
 	for (const sid of room.player2.socketIds) {
+		io.to(sid).emit(event, data);
+	}
+	// Spectators
+	for (const sid of room.spectators) {
 		io.to(sid).emit(event, data);
 	}
 }
@@ -261,6 +270,35 @@ export function registerGameHandlers(socket: Socket) {
 		room.handleInput(userId, data.direction);
 	});
 
+	// ── Spectate a game (read-only) ─────────────────────────
+	socket.on('game:spectate', (data: { roomId: string }) => {
+		const room = getRoom(data.roomId);
+		if (!room) {
+			socket.emit('game:error', { message: 'Game not found' });
+			return;
+		}
+		room.addSpectator(socket.id);
+		socket.emit('game:spectating', {
+			roomId: data.roomId,
+			player1: { userId: room.player1.userId, username: room.player1.username },
+			player2: { userId: room.player2.userId, username: room.player2.username },
+			spectatorCount: room.spectatorCount,
+		});
+		// Notify players and other spectators of new viewer
+		broadcastEvent(data.roomId, 'game:spectator-count', { count: room.spectatorCount });
+		// Send current state immediately
+		socket.emit('game:state', room.getState());
+	});
+
+	// ── Stop spectating ─────────────────────────────────────
+	socket.on('game:stop-spectating', (data: { roomId: string }) => {
+		const room = getRoom(data.roomId);
+		if (room) {
+			room.removeSpectator(socket.id);
+			broadcastEvent(data.roomId, 'game:spectator-count', { count: room.spectatorCount });
+		}
+	});
+
 	// Decline an invite
 	socket.on('game:invite-decline', (data: { inviteId: string }) => {
 		const invite = activeInvites.get(data.inviteId);
@@ -364,6 +402,13 @@ export function registerGameHandlers(socket: Socket) {
 				activeInvites.delete(inviteId);
 			}
 		}
+
+		// ── Spectator cleanup on disconnect ──
+		const affected = removeSpectatorFromAll(socket.id);
+		for (const { roomId, count } of affected) {
+			broadcastEvent(roomId, 'game:spectator-count', { count });
+		}
+
 		// Remove socket from active game room (triggers reconnect timer)
 		const room = getRoomByPlayer(userId);
 		if (room) {
