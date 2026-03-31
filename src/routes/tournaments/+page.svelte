@@ -20,7 +20,6 @@
 		socket.on('tournament:player-left', () => invalidateAll());
 		socket.on('tournament:started', () => invalidateAll());
 		socket.on('tournament:finished', () => invalidateAll());
-		socket.on('tournament:cancelled', () => invalidateAll());
 		socket.on('tournament:list-updated', () => invalidateAll());
 	});
 	onDestroy(() => {
@@ -30,7 +29,6 @@
 		socket.off('tournament:player-left');
 		socket.off('tournament:started');
 		socket.off('tournament:finished');
-		socket.off('tournament:cancelled');
 		socket.off('tournament:list-updated');
 	});
 

@@ -31,6 +31,38 @@ const activeTournaments = new Map<
 	}
 >();
 
+// Track pending timeouts per tournament so we can cancel them on cancel/finish
+const tournamentTimeouts = new Map<number, Set<ReturnType<typeof setTimeout>>>();
+
+// Dedup guard: prevent scheduling the same round twice (see Task 5)
+const scheduledRounds = new Set<string>();
+
+function addTrackedTimeout(tournamentId: number, callback: () => void, ms: number): ReturnType<typeof setTimeout> {
+	const timer = setTimeout(() => {
+		tournamentTimeouts.get(tournamentId)?.delete(timer);
+		callback();
+	}, ms);
+	if (!tournamentTimeouts.has(tournamentId)) {
+		tournamentTimeouts.set(tournamentId, new Set());
+	}
+	tournamentTimeouts.get(tournamentId)!.add(timer);
+	return timer;
+}
+
+function clearTournamentTimeouts(tournamentId: number): void {
+	const timeouts = tournamentTimeouts.get(tournamentId);
+	if (timeouts) {
+		for (const timer of timeouts) clearTimeout(timer);
+		timeouts.clear();
+		tournamentTimeouts.delete(tournamentId);
+	}
+	for (const key of scheduledRounds) {
+		if (key.startsWith(`${tournamentId}-`)) {
+			scheduledRounds.delete(key);
+		}
+	}
+}
+
 // ── Helpers ──────────────────────────────────────────────
 
 /** Broadcast to all sockets of both players in a room */
@@ -257,13 +289,42 @@ export async function leaveTournament(
 export async function cancelTournament(
 	tournamentId: number,
 	requestedBy: number,
-): Promise<boolean> {
+): Promise<{ success: false } | { success: true; tournamentName: string; participantUserIds: number[] }> {
 	const [tournament] = await db
 		.select()
 		.from(tournaments)
 		.where(eq(tournaments.id, tournamentId));
-	if (!tournament || tournament.created_by !== requestedBy) return false;
-	if (tournament.status !== 'scheduled') return false;
+	if (!tournament || tournament.created_by !== requestedBy) return { success: false };
+	if (tournament.status !== 'scheduled' && tournament.status !== 'in_progress') return { success: false };
+
+	// Clean up in-memory state for in-progress tournaments
+	clearTournamentTimeouts(tournamentId);
+
+	const tourney = activeTournaments.get(tournamentId);
+	if (tourney) {
+		for (const roundData of tourney.bracket) {
+			for (const match of roundData.matches) {
+				if (match.status === 'playing') {
+					const roomId = `tournament-${tournamentId}-r${roundData.round}-m${match.matchIndex}`;
+					const room = getRoom(roomId);
+					if (room) {
+						tournamentBroadcastEvent(roomId, 'game:cancelled', {
+							roomId,
+							reason: 'Tournament was cancelled',
+						});
+						destroyRoom(roomId);
+					}
+				}
+			}
+		}
+		activeTournaments.delete(tournamentId);
+	}
+
+	// Fetch participant IDs before deleting so we can notify them
+	const participants = await db
+		.select({ userId: tournamentParticipants.user_id })
+		.from(tournamentParticipants)
+		.where(eq(tournamentParticipants.tournament_id, tournamentId));
 
 	// Delete in correct order to respect FK constraints:
 	// 1. Messages referencing invites (no cascade on tournament_invite_id)
@@ -289,7 +350,11 @@ export async function cancelTournament(
 	await db.delete(tournamentParticipants)
 		.where(eq(tournamentParticipants.tournament_id, tournamentId));
 	await db.delete(tournaments).where(eq(tournaments.id, tournamentId));
-	return true;
+	return {
+		success: true,
+		tournamentName: tournament.name,
+		participantUserIds: participants.map(p => p.userId),
+	};
 }
 
 export async function startTournament(
@@ -474,16 +539,33 @@ async function startRoundMatches(
 		const capturedP1Id = match.player1Id;
 		const capturedP2Id = match.player2Id;
 
-		setTimeout(async () => {
+		addTrackedTimeout(tournamentId, async () => {
 			try {
+				// If match already finished (game ended normally), skip
+				const currentMatch = tourney.bracket.find((r) => r.round === round)?.matches[match.matchIndex];
+				if (currentMatch?.status === 'finished') return;
+
 				const room = getRoom(roomId);
 				if (!room) return; // already finished or destroyed
 				const p1Joined = room.player1.socketIds.size > 0;
 				const p2Joined = room.player2.socketIds.size > 0;
 				if (p1Joined && p2Joined) return; // both present, game running
 				if (!p1Joined && !p2Joined) {
-					// Neither joined — destroy room, advance nobody (both eliminated)
+					// Neither joined — advance player1 by default (higher seed).
+					// Arbitrary, but tournament MUST advance to avoid stuck state.
 					destroyRoom(roomId);
+					tournamentLogger.warn(
+						`Neither player joined match r${round}-m${match.matchIndex} in tournament ${tournamentId}. Auto-advancing p1 (id=${capturedP1Id}).`,
+					);
+					await advanceWinner(
+						tournamentId,
+						round,
+						match.matchIndex,
+						capturedP1Id,
+						capturedP2Id,
+						0,
+						0,
+					);
 					return;
 				}
 
@@ -508,6 +590,50 @@ async function startRoundMatches(
 				);
 			}
 		}, 60_000);
+
+		// 15-minute safety timeout — force-end stuck games
+		addTrackedTimeout(tournamentId, async () => {
+			try {
+				const room = getRoom(roomId);
+				if (!room) return;
+
+				const rd = tourney.bracket.find((r) => r.round === round);
+				const m = rd?.matches[match.matchIndex];
+				if (m?.status === 'finished') return;
+
+				tournamentLogger.warn(
+					`Match r${round}-m${match.matchIndex} in tournament ${tournamentId} hit 15-minute timeout. Force-ending.`,
+				);
+
+				const state = room.getState();
+				let forceWinnerId: number;
+				let forceLoserId: number;
+				if (state.score1 > state.score2) {
+					forceWinnerId = capturedP1Id;
+					forceLoserId = capturedP2Id;
+				} else if (state.score2 > state.score1) {
+					forceWinnerId = capturedP2Id;
+					forceLoserId = capturedP1Id;
+				} else {
+					// Tied — advance player1 (higher seed)
+					forceWinnerId = capturedP1Id;
+					forceLoserId = capturedP2Id;
+				}
+
+				destroyRoom(roomId);
+				await advanceWinner(
+					tournamentId,
+					round,
+					match.matchIndex,
+					forceWinnerId,
+					forceLoserId,
+					state.score1,
+					state.score2,
+				);
+			} catch (err) {
+				tournamentLogger.error({ err }, 'Failed to handle 15-min match timeout');
+			}
+		}, 15 * 60 * 1000);
 	}
 
 	// Broadcast updated bracket
@@ -593,17 +719,21 @@ export async function advanceWinner(
 
 	// Mark match finished with scores
 	const match = roundData.matches[matchIndex];
-	if (match) {
-		match.winnerId = winnerId;
-		match.status = 'finished';
-		// Map winner/loser scores to player1/player2 slots
-		if (match.player1Id === winnerId) {
-			match.player1Score = winnerScore;
-			match.player2Score = loserScore;
-		} else {
-			match.player1Score = loserScore;
-			match.player2Score = winnerScore;
-		}
+	if (!match || match.status === 'finished') {
+		tournamentLogger.warn(
+			`advanceWinner called for already-finished or missing match r${round}-m${matchIndex} in tournament ${tournamentId}. Ignoring.`,
+		);
+		return;
+	}
+	match.winnerId = winnerId;
+	match.status = 'finished';
+	// Map winner/loser scores to player1/player2 slots
+	if (match.player1Id === winnerId) {
+		match.player1Score = winnerScore;
+		match.player2Score = loserScore;
+	} else {
+		match.player1Score = loserScore;
+		match.player2Score = winnerScore;
 	}
 
 	// Eliminate loser — placement = totalPlayers - alreadyEliminated
@@ -752,9 +882,15 @@ export async function advanceWinner(
 			if (nextMatch.player1Id && nextMatch.player2Id) {
 				const capturedTournamentId = tournamentId;
 				const capturedNextRound = round + 1;
-				setTimeout(() => {
-					startRoundMatches(capturedTournamentId, capturedNextRound);
-				}, 10_000);
+				const scheduleKey = `${capturedTournamentId}-${capturedNextRound}`;
+
+				if (!scheduledRounds.has(scheduleKey)) {
+					scheduledRounds.add(scheduleKey);
+					addTrackedTimeout(capturedTournamentId, () => {
+						scheduledRounds.delete(scheduleKey);
+						startRoundMatches(capturedTournamentId, capturedNextRound);
+					}, 10_000);
+				}
 			}
 		}
 
@@ -847,6 +983,7 @@ export async function advanceWinner(
 			bracket: tourney.bracket,
 		});
 
+		clearTournamentTimeouts(tournamentId);
 		activeTournaments.delete(tournamentId);
 
 		// Notify ALL clients so tournament list pages refresh

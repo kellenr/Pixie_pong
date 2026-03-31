@@ -12,7 +12,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
 	const [tournament] = await db.select().from(tournaments)
 		.where(eq(tournaments.id, tournamentId));
-	if (!tournament) throw error(404, 'Tournament not found');
+	if (!tournament) throw redirect(302, '/tournaments');
 
 	const participants = await db.select({
 		userId: tournamentParticipants.user_id,

@@ -6,6 +6,7 @@
 	import InviteModal from '$lib/component/common/InviteModal.svelte';
 	import Toast from '$lib/component/common/Toast.svelte';
 	import ChatPanel from '$lib/component/chat/ChatPanel.svelte';
+	import ReturnToMatchPill from '$lib/component/common/ReturnToMatchPill.svelte';
 	import { receiveMessage, onMessageSent, setTyping, clearTyping, loadUnreadCounts, resetChat, isChatOpen, getActiveFriendId, openChat, closeChat } from '$lib/stores/chat.svelte';
 	import { afterNavigate } from '$app/navigation';
 	import { goto } from '$app/navigation';
@@ -15,6 +16,8 @@
 	import { toast } from '$lib/stores/toast.svelte';
 	import { onDestroy } from 'svelte';
 	import { onMount } from 'svelte';
+
+	let activeRoomId = $state<string | null>(null);
 
 	let pendingInvite: {
 		inviteId: string;
@@ -66,6 +69,10 @@
 		socket.off('chat:read-receipt');
 		socket.off('chat:error');
 		//tournament
+		socket.off('game:active-room');
+		socket.off('game:room-destroyed');
+		socket.off('game:paused');
+		socket.off('tournament:cancelled');
 		socket.off('tournament:invited');
 		socket.off('tournament:match-ready');
 		socket.off('tournament:started');
@@ -180,6 +187,41 @@
 			toast.game('Tournament Invite', `${evtData.inviterUsername} invited you to "${evtData.tournamentName}"`);
 		});
 
+		socket.on('tournament:cancelled', (evtData: { tournamentId: number; tournamentName: string }) => {
+			// If we're on this tournament's detail page, redirect to list
+			const path = $page.url.pathname;
+			if (path === `/tournaments/${evtData.tournamentId}`) {
+				toast.info(`"${evtData.tournamentName}" was cancelled`);
+				goto('/tournaments');
+			} else {
+				// On any other page, just show a toast
+				toast.info(`Tournament "${evtData.tournamentName}" was cancelled`);
+			}
+		});
+
+		socket.on('game:active-room', (evtData: { roomId: string }) => {
+			// Don't auto-navigate — just show the "Return to Match" pill.
+			// The user clicks it when they're ready.
+			// If already on the game page, no pill needed.
+			const path = $page.url.pathname;
+			if (path === `/play/online/${evtData.roomId}`) return;
+			activeRoomId = evtData.roomId;
+		});
+
+		socket.on('game:room-destroyed', () => {
+			activeRoomId = null;
+		});
+
+		// Track paused game room so pill shows even if user navigates away during pause
+		socket.on('game:paused', (evtData: { disconnectedUserId: number; remaining: number }) => {
+			// We need the roomId — get it from the current page if on a game page
+			const path = $page.url.pathname;
+			if (path.startsWith('/play/online/') && path !== '/play/online/waiting') {
+				const roomId = path.split('/play/online/')[1];
+				if (roomId) activeRoomId = roomId;
+			}
+		});
+
 		socket.on('tournament:match-ready', (evtData: any) => {
 			const myId = Number(data?.user?.id);
 			const opponent = evtData.player1.userId === myId ? evtData.player2.username : evtData.player1.username;
@@ -211,11 +253,20 @@
 	});
 
 	// Close chat panel on page navigation + clear game opponent tracking
-	afterNavigate(({ to }) => {
+	afterNavigate(({ from, to }) => {
 		closeChat();
 		const path = to?.url?.pathname ?? '';
 		if (!path.startsWith('/play/online/') || path === '/play/online/waiting') {
 			currentOpponentId = null;
+		}
+		// Track active game room for "Return to Match" pill
+		if (path.startsWith('/play/online/') && path !== '/play/online/waiting') {
+			// Arrived at game page — clear pill
+			activeRoomId = null;
+		} else if (from?.url?.pathname.startsWith('/play/online/') && from?.url?.pathname !== '/play/online/waiting') {
+			// Left a game page — remember the room so pill shows
+			const roomId = from.url.pathname.split('/play/online/')[1];
+			if (roomId) activeRoomId = roomId;
 		}
 	});
 
@@ -283,6 +334,10 @@
 {/if}
 
 <Toast />
+
+{#if activeRoomId && !$page.url.pathname.startsWith('/play/online/')}
+	<ReturnToMatchPill onReturn={() => goto(`/play/online/${activeRoomId}`)} />
+{/if}
 
 {#if data?.user}
 	<ChatPanel user={data.user} />

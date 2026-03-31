@@ -7,6 +7,7 @@
 	import OnlineGame from '$lib/component/pong/OnlineGame.svelte';
 	import GameOver from '$lib/component/pong/GameOver.svelte';
 	import TournamentGameOver from '$lib/component/tournament/TournamentGameOver.svelte';
+	import TournamentPauseOverlay from '$lib/component/tournament/TournamentPauseOverlay.svelte';
 	import LevelUpModal from '$lib/component/progression/LevelUpModal.svelte';
 	import type { XpBonus, NewAchievement } from '$lib/types/progression';
 	import AmbientBackground from '$lib/component/effect/AmbientBackground.svelte';
@@ -67,14 +68,29 @@
 		data: any;
 	} | null>(null);
 
+	// Tournament pause state
+	let pauseData = $state<{
+		disconnectedUserId: number;
+		remaining: number;
+		buttonsDelay: number;
+	} | null>(null);
+	let pauseOverlayRef: TournamentPauseOverlay | undefined = $state();
+
 	// Reactive to data.roomId — re-runs when navigating between rooms.
 	// This is the key fix: onMount only runs once, but $effect re-runs
 	// when data.roomId changes (same route pattern, different params).
 	// Without this, clicking "Challenge Again" from the game over screen
 	// would navigate to /play/online/newRoomId but onMount wouldn't re-run
 	// because SvelteKit reuses the component for the same route pattern.
+	// We store the room cleanup function so the polling path can also use it
+	let roomCleanup: (() => void) | null = null;
+
 	$effect(() => {
-		const roomId = data.roomId; // dependency — effect re-runs when this changes
+		const roomId = data.roomId;
+		let aborted = false;
+		let socketPollTimer: ReturnType<typeof setInterval> | null = null;
+		let giveUpTimer: ReturnType<typeof setTimeout> | null = null;
+		roomCleanup = null;
 
 		// Reset all state for the new room
 		gameReady = false;
@@ -85,29 +101,60 @@
 		const url = new URL(window.location.href);
 		isSpectator = url.searchParams.get('spectate') === 'true';
 
+		// On full page refresh, layout's onMount (connectSocket) may not have
+		// run yet, so getSocket() can return null briefly. Poll up to 5s.
 		const socket = getSocket();
-		if (!socket?.connected) {
-			toast.error('Not connected to server');
-			goto('/play');
-			return;
+		if (socket) {
+			roomCleanup = initRoom(socket, roomId, () => aborted);
+		} else {
+			socketPollTimer = setInterval(() => {
+				if (aborted) { clearInterval(socketPollTimer!); return; }
+				const s = getSocket();
+				if (s) {
+					clearInterval(socketPollTimer!); socketPollTimer = null;
+					if (giveUpTimer) { clearTimeout(giveUpTimer); giveUpTimer = null; }
+					roomCleanup = initRoom(s, roomId, () => aborted);
+				}
+			}, 100);
+			giveUpTimer = setTimeout(() => {
+				if (socketPollTimer) {
+					clearInterval(socketPollTimer); socketPollTimer = null;
+					if (!aborted) { toast.error('Not connected to server'); goto('/play'); }
+				}
+			}, 5000);
 		}
 
-		// Server responds with game:joined after we join the room
+		return () => {
+			aborted = true;
+			if (socketPollTimer) { clearInterval(socketPollTimer); socketPollTimer = null; }
+			if (giveUpTimer) { clearTimeout(giveUpTimer); giveUpTimer = null; }
+			if (roomCleanup) { roomCleanup(); roomCleanup = null; }
+		};
+	});
+
+	/**
+	 * Sets up all socket handlers and join logic for a game room.
+	 * Returns a cleanup function.
+	 */
+	function initRoom(
+		socket: NonNullable<ReturnType<typeof getSocket>>,
+		roomId: string,
+		isAborted: () => boolean,
+	): () => void {
+
 		function handleJoined(joinData: {
 			roomId: string;
 			side: 'left' | 'right';
 			player1: { userId: number; username: string };
 			player2: { userId: number; username: string };
 		}) {
+			if (isAborted()) return;
 			side = joinData.side;
-			// Enrich player data with avatar/name from game:start store and page load
 			const gsData = getGameStart();
 			const enrichPlayer = (p: { userId: number; username: string }) => {
-				// Our own data from page load
 				if (p.userId === data.userId) {
 					return { ...p, displayName: data.displayName, avatarUrl: data.avatarUrl };
 				}
-				// Opponent data from game:start event
 				const gsPlayer = gsData?.player1.userId === p.userId ? gsData.player1
 					: gsData?.player2.userId === p.userId ? gsData.player2 : null;
 				return {
@@ -122,13 +169,11 @@
 			clearGameStart();
 			gameReady = true;
 
-			// Check if opponent is a friend (for in-game chat)
 			const opponentId = data.userId === joinData.player1.userId ? joinData.player2.userId : joinData.player1.userId;
 			fetch('/api/chat/friends').then(r => r.json()).then(d => {
 				isFriendMatch = d.friends?.some((f: { id: number }) => f.id === opponentId) ?? false;
 			}).catch(() => {});
 
-			// Show match settings as a toast so both players know what they're playing
 			const s = gsData?.settings;
 			if (s) {
 				const speed = s.speedPreset.charAt(0).toUpperCase() + s.speedPreset.slice(1);
@@ -136,14 +181,14 @@
 			}
 		}
 
-		// If room doesn't exist or we're not in it
 		function handleError(errData: { message: string }) {
+			if (isAborted()) return;
 			toast.error(errData.message);
 			goto('/play');
 		}
 
-		// Game cancelled (opponent left at 0-0 or before game started)
 		function handleCancelled(cancelData: { reason: string }) {
+			if (isAborted()) return;
 			toast.info(cancelData.reason);
 			if (history.length > 1) {
 				history.back();
@@ -152,24 +197,23 @@
 			}
 		}
 
-		function handleProgression(data: any) {
-			progressionResult = data;
-			// Don't show level-up modal for tournament matches —
-			// the tournament result screen shows XP instead
+		function handleProgression(progData: any) {
+			if (isAborted()) return;
+			progressionResult = progData;
 			if (!isTournament) {
 				showLevelUpModal = true;
 			}
 		}
 
-		// In-game chat handlers
 		function handleChatMessage(msg: any) {
+			if (isAborted()) return;
 			gameMessages = [...gameMessages, msg];
 			requestAnimationFrame(() => {
 				if (gameMessagesEl) gameMessagesEl.scrollTop = gameMessagesEl.scrollHeight;
 			});
 		}
 		function handleChatSent(msg: any) {
-			// Avoid duplicates
+			if (isAborted()) return;
 			if (!gameMessages.some(m => m.id === msg.id)) {
 				gameMessages = [...gameMessages, msg];
 				requestAnimationFrame(() => {
@@ -184,35 +228,54 @@
 			player2: { userId: number; username: string };
 			spectatorCount: number;
 		}) {
+			if (isAborted()) return;
 			player1 = { ...specData.player1, displayName: null, avatarUrl: null };
 			player2 = { ...specData.player2, displayName: null, avatarUrl: null };
 			spectatorCount = specData.spectatorCount;
 			gameReady = true;
 		}
 
-		function handleSpectatorCount(data: { count: number }) {
-		spectatorCount = data.count;
+		function handleSpectatorCount(countData: { count: number }) {
+			if (isAborted()) return;
+			spectatorCount = countData.count;
 		}
 
-		// Tournament-specific event handlers
 		function handleTournamentAdvanced(eventData: any) {
-			if (eventData.tournamentId !== tournamentId) return;
+			if (isAborted() || eventData.tournamentId !== tournamentId) return;
 			tournamentEventData = { type: 'advanced', data: eventData };
+			const nextRound = eventData.nextRoundName ?? 'Next round';
+			toast.game('Advancing!', `${nextRound} starts in 10 seconds`);
 		}
 
 		function handleTournamentEliminated(eventData: any) {
-			if (eventData.tournamentId !== tournamentId) return;
+			if (isAborted() || eventData.tournamentId !== tournamentId) return;
 			tournamentEventData = { type: 'eliminated', data: eventData };
 		}
 
 		function handleTournamentFinished(eventData: any) {
-			if (eventData.tournamentId !== tournamentId) return;
-			// Don't override eliminated state — only players in the final
-			// (champion + runner-up) should see the finished screen
+			if (isAborted() || eventData.tournamentId !== tournamentId) return;
 			if (tournamentEventData?.type === 'eliminated') return;
 			tournamentEventData = { type: 'finished', data: eventData };
 		}
 
+		function handlePaused(pauseEvt: { disconnectedUserId: number; remaining: number; buttonsDelay: number }) {
+			if (isAborted()) return;
+			pauseData = pauseEvt;
+		}
+
+		function handleResumed() {
+			if (isAborted()) return;
+			pauseData = null;
+		}
+
+		function handlePauseExtended(extEvt: { remaining: number; extensionsLeft: number }) {
+			if (isAborted()) return;
+			if (pauseOverlayRef) {
+				pauseOverlayRef.updateRemaining(extEvt.remaining, extEvt.extensionsLeft);
+			}
+		}
+
+		// Register all event handlers
 		socket.on('game:joined', handleJoined);
 		socket.on('game:error', handleError);
 		socket.on('game:cancelled', handleCancelled);
@@ -226,19 +289,60 @@
 			socket.on('tournament:finished', handleTournamentFinished);
 		}
 
+		if (isTournament) {
+			socket.on('game:paused', handlePaused);
+			socket.on('game:resumed', handleResumed);
+			socket.on('game:pause-extended', handlePauseExtended);
+		}
+
 		if (isSpectator) {
 			socket.on('game:spectating', handleSpectating);
 			socket.on('game:spectator-count', handleSpectatorCount);
 		}
 
-		// Tell the server we're here
-		if (isSpectator) {
-			socket.emit('game:spectate', { roomId });
-		} else {
-			socket.emit('game:join-room', { roomId });
+		// Join the room
+		function joinRoom() {
+			if (isAborted()) return;
+			if (isSpectator) {
+				socket.emit('game:spectate', { roomId });
+			} else {
+				socket.emit('game:join-room', { roomId });
+			}
 		}
 
-		// Cleanup: runs when roomId changes or component is destroyed
+		let connectTimeout: ReturnType<typeof setTimeout> | null = null;
+		let reconnectActive = false;
+
+		if (socket.connected) {
+			joinRoom();
+			reconnectActive = true;
+		} else {
+			const onFirstConnect = () => {
+				if (connectTimeout) clearTimeout(connectTimeout);
+				connectTimeout = null;
+				joinRoom();
+				setTimeout(() => { reconnectActive = true; }, 0);
+			};
+			socket.once('connect', onFirstConnect);
+			connectTimeout = setTimeout(() => {
+				socket.off('connect', onFirstConnect);
+				connectTimeout = null;
+				if (!isAborted()) {
+					toast.error('Could not reconnect to server');
+					goto('/play');
+				}
+			}, 5000);
+		}
+
+		// Auto re-join on SUBSEQUENT socket reconnections (wifi drop mid-game).
+		function handleReconnect() {
+			if (!reconnectActive || isAborted()) return;
+			console.log('[Game] Socket reconnected, re-joining room...');
+			socket.emit('game:join-room', { roomId });
+		}
+		socket.on('connect', handleReconnect);
+
+		// Return cleanup function
 		return () => {
 			socket.off('game:joined', handleJoined);
 			socket.off('game:error', handleError);
@@ -246,6 +350,7 @@
 			socket.off('game:progression', handleProgression);
 			socket.off('chat:message', handleChatMessage);
 			socket.off('chat:sent', handleChatSent);
+			socket.off('connect', handleReconnect);
 
 			if (isTournament) {
 				socket.off('tournament:advanced', handleTournamentAdvanced);
@@ -253,13 +358,34 @@
 				socket.off('tournament:finished', handleTournamentFinished);
 			}
 
+			if (isTournament) {
+				socket.off('game:paused', handlePaused);
+				socket.off('game:resumed', handleResumed);
+				socket.off('game:pause-extended', handlePauseExtended);
+			}
+
 			if (isSpectator) {
 				socket.off('game:spectating', handleSpectating);
 				socket.off('game:spectator-count', handleSpectatorCount);
 				socket.emit('game:stop-spectating', { roomId });
 			}
+
+			if (connectTimeout) {
+				clearTimeout(connectTimeout);
+				connectTimeout = null;
+			}
 		};
-	});
+	}
+
+	function emitClaimWin() {
+		const socket = getSocket();
+		if (socket?.connected) socket.emit('game:claim-win');
+	}
+
+	function emitExtendPause() {
+		const socket = getSocket();
+		if (socket?.connected) socket.emit('game:extend-pause');
+	}
 
 	function handleGameOver(result: any) {
 		if (isSpectator) {
@@ -485,6 +611,16 @@
 			ballSkinId={prefs.ballSkin}
 			effectsConfig={{ preset: prefs.effectsPreset, custom: prefs.effectsCustom }}
 		/>
+		{#if pauseData && isTournament}
+			<TournamentPauseOverlay
+				bind:this={pauseOverlayRef}
+				isDisconnectedPlayer={pauseData.disconnectedUserId === data.userId}
+				initialRemaining={pauseData.remaining}
+				buttonsDelay={pauseData.buttonsDelay}
+				onClaimWin={emitClaimWin}
+				onExtendPause={emitExtendPause}
+			/>
+		{/if}
 		{#if !isSpectator}
 			<div class="status-bar">
 				<span class="vs-label">{player1.username} vs {player2.username}</span>

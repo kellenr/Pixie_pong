@@ -30,9 +30,10 @@
 		themeId?: string;
 		ballSkinId?: string;
 		effectsConfig?: EffectsConfig;
+		spectatorMode?: boolean;
 	};
 
-	let { roomId, side, player1, player2, onGameOver, themeId, ballSkinId, effectsConfig }: Props = $props();
+	let { roomId, side, player1, player2, onGameOver, themeId, ballSkinId, effectsConfig, spectatorMode = false }: Props = $props();
 
 	const theme = $derived(getTheme(themeId ?? 'classic'));
 	const ballSkin = $derived(getBallSkin(ballSkinId ?? 'default'));
@@ -93,6 +94,7 @@
 	}
 
 	function handleKeyDown(e: KeyboardEvent) {
+		if (spectatorMode) return;
 		// Don't capture game keys when typing in chat input
 		const tag = (e.target as HTMLElement)?.tagName;
 		if (tag === 'INPUT' || tag === 'TEXTAREA') return;
@@ -106,6 +108,7 @@
 	}
 
 	function handleKeyUp(e: KeyboardEvent) {
+		if (spectatorMode) return;
 		const tag = (e.target as HTMLElement)?.tagName;
 		if (tag === 'INPUT' || tag === 'TEXTAREA') return;
 

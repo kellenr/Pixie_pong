@@ -560,6 +560,10 @@ function updateGame(state, dt, input, settings) {
 const TICK_RATE = 60;
 const TICK_INTERVAL = 1000 / TICK_RATE;
 const RECONNECT_TIMEOUT = 15000;
+const TOURNAMENT_PAUSE_TIMEOUT = 45000;
+const PAUSE_EXTENSION_MS = 10000;
+const MAX_PAUSE_EXTENSIONS = 3;
+const PAUSE_BUTTONS_DELAY = 15000;
 
 // Room storage
 const activeRooms = new Map();      // roomId → room
@@ -584,6 +588,13 @@ function destroyGameRoom(roomId) {
 	}
 	if (playerRoomMap.get(room.player2.userId) === roomId) {
 		playerRoomMap.delete(room.player2.userId);
+	}
+	// Notify players the room is gone (clears "Return to Match" pill)
+	for (const uid of [room.player1.userId, room.player2.userId]) {
+		const sockets = userSockets.get(uid);
+		if (sockets) {
+			for (const sid of sockets) io.to(sid).emit('game:room-destroyed');
+		}
 	}
 	activeRooms.delete(roomId);
 }
@@ -621,6 +632,14 @@ class ServerGameRoom {
 		this.disconnectTimers = new Map();
 		this.spectatorSockets = new Set();
 
+		// Tournament pause state
+		this.paused = false;
+		this.pauseTimer = null;
+		this.pauseRemaining = 0;
+		this.pausedAt = 0;
+		this.pauseExtensions = 0;
+		this.disconnectedUserId = null;
+
 		const speedConfig = SPEED_CONFIGS[settings.speedPreset] ?? SPEED_CONFIGS.normal;
 		this.settings = {
 			winScore: settings.winScore,
@@ -646,6 +665,11 @@ class ServerGameRoom {
 			this.disconnectTimers.delete(userId);
 			broadcastRoomEvent(this.roomId, 'game:player-reconnected', { userId });
 		}
+		// If game was paused (tournament), resume it
+		if (this.paused && userId === this.disconnectedUserId) {
+			broadcastRoomEvent(this.roomId, 'game:player-reconnected', { userId });
+			this.resume();
+		}
 		return true;
 	}
 
@@ -654,6 +678,13 @@ class ServerGameRoom {
 		if (!player) return;
 		player.socketIds.delete(socketId);
 		if (player.socketIds.size === 0 && (this.state.phase === 'playing' || this.state.phase === 'countdown')) {
+			// Tournament matches: pause instead of immediate forfeit
+			if (this.roomId.startsWith('tournament-')) {
+				broadcastRoomEvent(this.roomId, 'game:player-disconnected', { userId, timeout: TOURNAMENT_PAUSE_TIMEOUT });
+				this.pause(userId);
+				return;
+			}
+			// Non-tournament: existing 15-second forfeit timer
 			broadcastRoomEvent(this.roomId, 'game:player-disconnected', { userId, timeout: RECONNECT_TIMEOUT });
 			const timer = setTimeout(() => {
 				this.disconnectTimers.delete(userId);
@@ -686,6 +717,7 @@ class ServerGameRoom {
 
 	_tick() {
 		if (this.destroyed) return;
+		if (this.paused) return;
 		const now = Date.now();
 		const dt = (now - this.lastTick) / 1000;
 		this.lastTick = now;
@@ -778,6 +810,36 @@ class ServerGameRoom {
 		const gameNotStarted = this.state.phase === 'countdown' || this.state.phase === 'menu';
 
 		if (gameNotStarted || bothZero) {
+			// Tournament matches MUST produce a winner
+			if (this.roomId.startsWith('tournament-')) {
+				if (winner === this.player1) {
+					this.state.score1 = 1;
+					this.state.score2 = 0;
+				} else {
+					this.state.score1 = 0;
+					this.state.score2 = 1;
+				}
+				endGameState(this.state, winner.username);
+				const result = {
+					roomId: this.roomId,
+					player1: { userId: this.player1.userId, username: this.player1.username, score: this.state.score1 },
+					player2: { userId: this.player2.userId, username: this.player2.username, score: this.state.score2 },
+					winnerId: winner.userId, winnerUsername: winner.username,
+					loserId: loser.userId, loserUsername: loser.username,
+					durationSeconds: Math.round(this.state.playTime),
+					settings: this.rawSettings,
+					ballReturns: this.state.ballReturns ?? 0,
+					maxDeficit: this.state.maxDeficit ?? 0,
+					reachedDeuce: this.state.reachedDeuce ?? false,
+				};
+				broadcastRoomEvent(this.roomId, 'game:forfeit', result);
+				playerRoomMap.delete(this.player1.userId);
+				playerRoomMap.delete(this.player2.userId);
+				saveOnlineMatch(result);
+				return;
+			}
+
+			// Non-tournament: cancel with no winner
 			const reason = gameNotStarted ? 'Player left before game started' : 'Player disconnected at 0-0';
 			broadcastRoomEvent(this.roomId, 'game:cancelled', {
 				roomId: this.roomId, reason,
@@ -820,6 +882,7 @@ class ServerGameRoom {
 	destroy() {
 		this.destroyed = true;
 		this.stop();
+		if (this.pauseTimer) { clearTimeout(this.pauseTimer); this.pauseTimer = null; }
 		for (const timer of this.disconnectTimers.values()) clearTimeout(timer);
 		this.disconnectTimers.clear();
 		this.spectatorSockets.clear();
@@ -837,6 +900,103 @@ class ServerGameRoom {
 		if (userId === this.player1.userId) return this.player1;
 		if (userId === this.player2.userId) return this.player2;
 		return null;
+	}
+
+	// ── Tournament Pause ─────────────────────────────────────
+
+	pause(disconnectedUserId) {
+		if (this.paused || this.gameEnded || this.destroyed) return;
+		if (!this.roomId.startsWith('tournament-')) return;
+
+		this.paused = true;
+		this.pausedAt = Date.now();
+		this.pauseRemaining = TOURNAMENT_PAUSE_TIMEOUT;
+		this.pauseExtensions = 0;
+		this.disconnectedUserId = disconnectedUserId;
+
+		this.stop();
+
+		broadcastRoomEvent(this.roomId, 'game:paused', {
+			disconnectedUserId,
+			remaining: this.pauseRemaining,
+			buttonsDelay: PAUSE_BUTTONS_DELAY,
+		});
+
+		this.pauseTimer = setTimeout(() => {
+			this.pauseTimer = null;
+			if (!this.paused || this.gameEnded) return;
+			const opponent = disconnectedUserId === this.player1.userId ? this.player2 : this.player1;
+			this.paused = false;
+			this._handleForfeit(opponent);
+		}, this.pauseRemaining);
+
+		console.log(`[GameRoom] Tournament match ${this.roomId} PAUSED. Player ${disconnectedUserId} disconnected. Timeout: ${this.pauseRemaining / 1000}s`);
+	}
+
+	resume() {
+		if (!this.paused || this.gameEnded || this.destroyed) return;
+
+		if (this.pauseTimer) {
+			clearTimeout(this.pauseTimer);
+			this.pauseTimer = null;
+		}
+
+		this.paused = false;
+		this.disconnectedUserId = null;
+
+		broadcastRoomEvent(this.roomId, 'game:resumed', {});
+
+		startCountdown(this.state, this.settings);
+		this.lastTick = Date.now();
+		this.interval = setInterval(() => this._tick(), TICK_INTERVAL);
+
+		console.log(`[GameRoom] Tournament match ${this.roomId} RESUMED with countdown.`);
+	}
+
+	extendPause() {
+		if (!this.paused || this.gameEnded) return false;
+		if (this.pauseExtensions >= MAX_PAUSE_EXTENSIONS) return false;
+
+		this.pauseExtensions++;
+
+		if (this.pauseTimer) clearTimeout(this.pauseTimer);
+
+		const elapsed = Date.now() - this.pausedAt;
+		this.pauseRemaining = Math.max(0, this.pauseRemaining - elapsed) + PAUSE_EXTENSION_MS;
+		this.pausedAt = Date.now();
+
+		this.pauseTimer = setTimeout(() => {
+			this.pauseTimer = null;
+			if (!this.paused || this.gameEnded) return;
+			const opponent = this.disconnectedUserId === this.player1.userId ? this.player2 : this.player1;
+			this.paused = false;
+			this._handleForfeit(opponent);
+		}, this.pauseRemaining);
+
+		broadcastRoomEvent(this.roomId, 'game:pause-extended', {
+			remaining: this.pauseRemaining,
+			extensionsLeft: MAX_PAUSE_EXTENSIONS - this.pauseExtensions,
+		});
+
+		return true;
+	}
+
+	claimWin(claimingUserId) {
+		if (!this.paused || this.gameEnded) return;
+		if (claimingUserId === this.disconnectedUserId) return;
+
+		if (this.pauseTimer) {
+			clearTimeout(this.pauseTimer);
+			this.pauseTimer = null;
+		}
+
+		this.paused = false;
+		const winner = this._getPlayer(claimingUserId);
+		if (winner) this._handleForfeit(winner);
+	}
+
+	get isPaused() {
+		return this.paused;
 	}
 }
 
@@ -1690,6 +1850,16 @@ io.on('connection', (socket) => {
 	// These constants and functions are copied from src/lib/component/pong/gameEngine.ts
 	// because server.js can't import TypeScript/$lib modules.
 
+	// Notify client if they have an active game (reconnection support)
+	const existingRoom = getRoomByPlayerId(userId);
+	if (existingRoom) {
+		socket.emit('game:active-room', {
+			roomId: existingRoom.roomId,
+			player1: { userId: existingRoom.player1.userId, username: existingRoom.player1.username },
+			player2: { userId: existingRoom.player2.userId, username: existingRoom.player2.username },
+		});
+	}
+
 	// ── Game handlers ─────────────────────────────────────────────
 	const activeInvites = globalThis.__activeInvites || (globalThis.__activeInvites = new Map());
 
@@ -1865,6 +2035,22 @@ io.on('connection', (socket) => {
 		if (room) {
 			room.removeSpectator(socket.id);
 			broadcastRoomEvent(data.roomId, 'game:spectator-count', { count: room.spectatorCount });
+		}
+	});
+
+	// ── Tournament pause controls ────────────────────────────
+	socket.on('game:claim-win', () => {
+		const room = getRoomByPlayerId(userId);
+		if (!room || !room.isPaused) return;
+		room.claimWin(userId);
+	});
+
+	socket.on('game:extend-pause', () => {
+		const room = getRoomByPlayerId(userId);
+		if (!room || !room.isPaused) return;
+		const success = room.extendPause();
+		if (!success) {
+			socket.emit('game:error', { message: 'Cannot extend pause further' });
 		}
 	});
 
@@ -2116,6 +2302,9 @@ io.on('connection', (socket) => {
 				return;
 			}
 
+			// Fetch participant IDs before deleting so we can notify them
+			const participants = await sql`SELECT user_id FROM tournament_participants WHERE tournament_id = ${data.tournamentId}`;
+
 			// Clear messages referencing invites (FK blocks cascade)
 			const inviteIds = await sql`SELECT id FROM tournament_invites WHERE tournament_id = ${data.tournamentId}`;
 			for (const inv of inviteIds) {
@@ -2125,7 +2314,19 @@ io.on('connection', (socket) => {
 			await sql`DELETE FROM tournament_messages WHERE tournament_id = ${data.tournamentId}`;
 			await sql`DELETE FROM tournament_participants WHERE tournament_id = ${data.tournamentId}`;
 			await sql`DELETE FROM tournaments WHERE id = ${data.tournamentId}`;
-			socket.emit('tournament:cancelled', { tournamentId: data.tournamentId });
+
+			// Notify each participant individually
+			for (const p of participants) {
+				const participantSockets = userSockets.get(p.user_id);
+				if (participantSockets) {
+					for (const sid of participantSockets) {
+						io.to(sid).emit('tournament:cancelled', {
+							tournamentId: data.tournamentId,
+							tournamentName: tournament.name,
+						});
+					}
+				}
+			}
 			io.emit('tournament:list-updated');
 		} catch (err) {
 			console.error('[Tournament] Cancel failed:', err);
