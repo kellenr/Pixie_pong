@@ -55,6 +55,7 @@ export class GameRoom {
 	private disconnectTimers = new Map<number, ReturnType<typeof setTimeout>>();
 	private destroyed = false;
 	private gameEnded = false;
+	private spectatorSockets: Set<string> = new Set();
 	private lastTickCount = 0;
 
 	constructor(options: GameRoomOptions) {
@@ -104,7 +105,7 @@ export class GameRoom {
 		this.state = createGameState();
 		// ENSURE initialization of settings matches state
 		this.state.powerUpsEnabled = !!this.settings.powerUps;
-		
+
 		console.log(`[GameRoom] Initialized room ${this.roomId} | Power-ups from settings: ${this.settings.powerUps} | State enabled: ${this.state.powerUpsEnabled} | Win score: ${this.settings.winScore}`);
 		if (this.settings.powerUps) {
 			console.log(`[GameRoom] Power-ups are ON. Initial cooldown: ${this.state.powerUpCooldown}s`);
@@ -308,7 +309,7 @@ export class GameRoom {
 		this.broadcastState(this.roomId, this.getSnapshot());
 		this.broadcastEvent(this.roomId, 'game:over', result);
 
-		this.onGameEnd(result);
+		Promise.resolve(this.onGameEnd(result)).catch((err: any) => console.error('[GameRoom] onGameEnd error:', err));
 	}
 
 	private handleForfeit(winner: RoomPlayer): void {
@@ -360,7 +361,7 @@ export class GameRoom {
 		};
 
 		this.broadcastEvent(this.roomId, 'game:forfeit', result);
-		this.onGameEnd(result);
+		Promise.resolve(this.onGameEnd(result)).catch((err: any) => console.error('[GameRoom] onGameEnd error (forfeit):', err));
 	}
 
 	/** Immediate forfeit — player chose to leave (no reconnect timer) */
@@ -388,6 +389,7 @@ export class GameRoom {
 			clearTimeout(timer);
 		}
 		this.disconnectTimers.clear();
+		this.spectatorSockets.clear();
 	}
 
 	// ── Helpers ───────────────────────────────────────────────
@@ -402,6 +404,22 @@ export class GameRoom {
 
 	getState(): GameStateSnapshot {
 		return this.getSnapshot();
+	}
+
+	addSpectator(socketId: string): void {
+		this.spectatorSockets.add(socketId);
+	}
+
+	removeSpectator(socketId: string): void {
+		this.spectatorSockets.delete(socketId);
+	}
+
+	get spectatorCount(): number {
+		return this.spectatorSockets.size;
+	}
+
+	get spectators(): Set<string> {
+		return this.spectatorSockets;
 	}
 
 	private getPlayer(userId: number): RoomPlayer | null {

@@ -46,6 +46,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			winScore: tournament.win_score,
 			currentRound: tournament.current_round,
 			createdBy: tournament.created_by,
+			isPrivate: tournament.is_private,
 			winnerId: tournament.winner_id,
 			startedAt: tournament.started_at?.toISOString() ?? null,
 			finishedAt: tournament.finished_at?.toISOString() ?? null,

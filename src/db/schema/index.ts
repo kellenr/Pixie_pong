@@ -3,14 +3,16 @@ import { users } from './users';
 import { games } from './games';
 import { messages } from './messages';
 import { tournaments, tournamentParticipants } from './tournaments';
+import { tournamentInvites } from './tournament_invites';
 import { analytics } from './analytics';
 import { sessions } from './sessions';
 import { friendships } from './friendships';
 import { achievements } from './achievements';
 import { player_progression } from './player_progression';
 import { achievement_definitions } from './achievement_definitions';
+import { tournamentMessages } from './tournament_messages';
 
-export { users, games, messages, tournaments, analytics, sessions, friendships, tournamentParticipants, achievements, player_progression, achievement_definitions };
+export { users, games, messages, tournaments, analytics, sessions, friendships, tournamentParticipants, achievements, player_progression, achievement_definitions, tournamentInvites, tournamentMessages };
 
 export const usersRelations = relations(users, ({ one, many }) => ({
 	gamesAsPlayer1: many(games, { relationName: 'player1' }),
@@ -49,7 +51,7 @@ export const gamesRelations = relations(games, ({ one, many }) => ({
 		relationName: 'winner'
 	}),
 	messages: many(messages, { relationName: 'gameMessages' }),
-	analyticsEvents: many(analytics, { relationName: 'gameAnalytics' })
+	analyticsEvents: many(analytics, { relationName: 'gameAnalytics' }),
 }));
 
 export const friendshipsRelations = relations(friendships, ({ one }) => ({
@@ -62,7 +64,7 @@ export const friendshipsRelations = relations(friendships, ({ one }) => ({
 		fields: [friendships.friend_id],
 		references: [users.id],
 		relationName: 'receivedRequests'
-	})
+	}),
 }));
 
 export const messagesRelations = relations(messages, ({ one }) => ({
@@ -80,7 +82,12 @@ export const messagesRelations = relations(messages, ({ one }) => ({
 		fields: [messages.game_id],
 		references: [games.id],
 		relationName: 'gameMessages'
-	})
+	}),
+	tournamentInvite: one(tournamentInvites, {
+		fields: [messages.tournament_invite_id],
+		references: [tournamentInvites.id],
+		relationName: 'inviteMessage'
+	}),
 }));
 
 // Add relations for tournamentParticipants
@@ -97,6 +104,37 @@ export const tournamentParticipantsRelations = relations(tournamentParticipants,
 	}),
 }));
 
+export const tournamentInvitesRelations = relations(tournamentInvites, ({ one }) => ({
+	tournament: one(tournaments, {
+		fields: [tournamentInvites.tournament_id],
+		references: [tournaments.id],
+		relationName: 'tournamentInvites'
+	}),
+	invitedBy: one(users, {
+		fields: [tournamentInvites.invited_by],
+		references: [users.id],
+		relationName: 'sentTournamentInvites'
+	}),
+	invitedUser: one(users, {
+		fields: [tournamentInvites.invited_user_id],
+		references: [users.id],
+		relationName: 'receivedTournamentInvites'
+	}),
+}));
+
+export const tournamentMessagesRelations = relations(tournamentMessages, ({ one }) => ({
+	tournament: one(tournaments, {
+		fields: [tournamentMessages.tournament_id],
+		references: [tournaments.id],
+		relationName: 'tournamentMessages'
+	}),
+	user: one(users, {
+		fields: [tournamentMessages.user_id],
+		references: [users.id],
+		relationName: 'userTournamentMessages'
+	}),
+}));
+
 export const achievementsRelations = relations(achievements, ({ one }) => ({
 	user: one(users, {
 		fields: [achievements.user_id],
@@ -107,7 +145,7 @@ export const achievementsRelations = relations(achievements, ({ one }) => ({
 		fields: [achievements.achievement_id],
 		references: [achievement_definitions.id],
 		relationName: 'achievementDefinition'
-	})
+	}),
 }));
 
 export const achievement_definitionsRelations = relations(achievement_definitions, ({ many }) => ({
@@ -119,7 +157,7 @@ export const player_progressionRelations = relations(player_progression, ({ one 
 		fields: [player_progression.user_id],
 		references: [users.id],
 		relationName: 'player_progression'
-	})
+	}),
 }));
 
 export const tournamentsRelations = relations(tournaments, ({ one, many }) => ({
@@ -134,7 +172,9 @@ export const tournamentsRelations = relations(tournaments, ({ one, many }) => ({
 		relationName: 'wonTournaments'
 	}),
 	participants: many(tournamentParticipants, { relationName: 'tournamentEntries' }),
-	analyticsEvents: many(analytics, { relationName: 'tournamentAnalytics' })
+	invites: many(tournamentInvites, { relationName: 'tournamentInvites' }),
+	tournamentMessages: many(tournamentMessages, { relationName: 'tournamentMessages' }),
+	analyticsEvents: many(analytics, { relationName: 'tournamentAnalytics' }),
 }));
 
 export const analyticsRelations = relations(analytics, ({ one }) => ({
@@ -152,7 +192,7 @@ export const analyticsRelations = relations(analytics, ({ one }) => ({
 		fields: [analytics.tournament_id],
 		references: [tournaments.id],
 		relationName: 'tournamentAnalytics'
-	})
+	}),
 }));
 
 export type User = typeof users.$inferSelect;
@@ -175,6 +215,12 @@ export type NewAnalytics = typeof analytics.$inferInsert;
 
 export type TournamentParticipant = typeof tournamentParticipants.$inferSelect;
 export type NewTournamentParticipant = typeof tournamentParticipants.$inferInsert;
+
+export type TournamentInvite = typeof tournamentInvites.$inferSelect;
+export type NewTournamentInvite = typeof tournamentInvites.$inferInsert;
+
+export type TournamentMessage = typeof tournamentMessages.$inferSelect;
+export type NewTournamentMessage = typeof tournamentMessages.$inferInsert;
 
 export type Achievement = typeof achievements.$inferSelect;
 export type NewAchievement = typeof achievements.$inferInsert;

@@ -30,8 +30,6 @@
 		challengeTarget = null;
 	}
 
-
-
 	let { data } = $props();
 
 	let searchQuery = $state('');

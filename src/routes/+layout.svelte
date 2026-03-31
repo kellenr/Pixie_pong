@@ -66,6 +66,7 @@
 		socket.off('chat:read-receipt');
 		socket.off('chat:error');
 		//tournament
+		socket.off('tournament:invited');
 		socket.off('tournament:match-ready');
 		socket.off('tournament:started');
 		socket.off('tournament:eliminated');
@@ -172,6 +173,11 @@
 		// Chat: error
 		socket.on('chat:error', (data: { message: string }) => {
 			toast.error(data.message);
+		});
+
+		// Tournament: someone invited you
+		socket.on('tournament:invited', (evtData: any) => {
+			toast.game('Tournament Invite', `${evtData.inviterUsername} invited you to "${evtData.tournamentName}"`);
 		});
 
 		socket.on('tournament:match-ready', (evtData: any) => {
