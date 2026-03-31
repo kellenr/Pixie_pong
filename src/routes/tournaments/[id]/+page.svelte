@@ -96,16 +96,20 @@
 		);
 	}
 
+	let cancelling = $state(false);
 	function handleCancel() {
+		if (cancelling) return;
 		const socket = getSocket();
 		if (!socket?.connected) {
 			toast.error('Not connected');
 			return;
 		}
+		cancelling = true;
 		socket.emit('tournament:cancel', { tournamentId: tournament.id });
-		socket.once('tournament:error', (d: { message: string }) =>
-			toast.error(d.message),
-		);
+		socket.once('tournament:error', (d: { message: string }) => {
+			toast.error(d.message);
+			cancelling = false;
+		});
 	}
 
 	async function openInviteModal() {
@@ -151,12 +155,6 @@
 		socket.on('tournament:player-left', (d: any) => {
 			if (d.tournamentId === tournament.id) invalidateAll();
 		});
-		socket.on('tournament:cancelled', (d: any) => {
-			if (d.tournamentId === tournament.id) {
-				toast.info('Tournament was cancelled');
-				goto('/tournaments');
-			}
-		});
 		socket.on('tournament:started', (d: any) => {
 			if (d.tournamentId === tournament.id) {
 				socketOverrides = {
@@ -187,7 +185,7 @@
 	onDestroy(() => {
 		const socket = getSocket();
 		if (!socket) return;
-		socket.off('tournament:cancelled');
+		// Don't remove tournament:cancelled — it's owned by the layout
 		socket.off('tournament:player-joined');
 		socket.off('tournament:player-left');
 		socket.off('tournament:started');

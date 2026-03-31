@@ -2116,6 +2116,9 @@ io.on('connection', (socket) => {
 				return;
 			}
 
+			// Fetch participant IDs before deleting so we can notify them
+			const participants = await sql`SELECT user_id FROM tournament_participants WHERE tournament_id = ${data.tournamentId}`;
+
 			// Clear messages referencing invites (FK blocks cascade)
 			const inviteIds = await sql`SELECT id FROM tournament_invites WHERE tournament_id = ${data.tournamentId}`;
 			for (const inv of inviteIds) {
@@ -2125,7 +2128,19 @@ io.on('connection', (socket) => {
 			await sql`DELETE FROM tournament_messages WHERE tournament_id = ${data.tournamentId}`;
 			await sql`DELETE FROM tournament_participants WHERE tournament_id = ${data.tournamentId}`;
 			await sql`DELETE FROM tournaments WHERE id = ${data.tournamentId}`;
-			socket.emit('tournament:cancelled', { tournamentId: data.tournamentId });
+
+			// Notify each participant individually
+			for (const p of participants) {
+				const participantSockets = userSockets.get(p.user_id);
+				if (participantSockets) {
+					for (const sid of participantSockets) {
+						io.to(sid).emit('tournament:cancelled', {
+							tournamentId: data.tournamentId,
+							tournamentName: tournament.name,
+						});
+					}
+				}
+			}
 			io.emit('tournament:list-updated');
 		} catch (err) {
 			console.error('[Tournament] Cancel failed:', err);
