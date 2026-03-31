@@ -415,6 +415,22 @@ export function registerGameHandlers(socket: Socket) {
 			room.removeSocket(userId, socket.id);
 		}
 	});
+	// ── Tournament pause controls ────────────────────────────
+	socket.on('game:claim-win', () => {
+		const room = getRoomByPlayer(userId);
+		if (!room || !room.isPaused) return;
+		room.claimWin(userId);
+	});
+
+	socket.on('game:extend-pause', () => {
+		const room = getRoomByPlayer(userId);
+		if (!room || !room.isPaused) return;
+		const success = room.extendPause();
+		if (!success) {
+			socket.emit('game:error', { message: 'Cannot extend pause further' });
+		}
+	});
+
 	// ══════════════════════════════════════════════════════════
 	// PUBLIC QUEUE
 	// ══════════════════════════════════════════════════════════

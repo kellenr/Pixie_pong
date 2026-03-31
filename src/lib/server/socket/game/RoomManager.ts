@@ -81,6 +81,14 @@ export function destroyRoom(roomId: string): void {
 	if (playerRoomMap.get(room.player2.userId) === roomId) {
 		playerRoomMap.delete(room.player2.userId);
 	}
+	// Notify players the room is gone (clears "Return to Match" pill)
+	const io = getIO();
+	for (const uid of [room.player1.userId, room.player2.userId]) {
+		const sockets = userSockets.get(uid);
+		if (sockets) {
+			for (const sid of sockets) io.to(sid).emit('game:room-destroyed');
+		}
+	}
 	activeRooms.delete(roomId);
 }
 
