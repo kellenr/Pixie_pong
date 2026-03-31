@@ -20,6 +20,7 @@
 
 	let { user }: Props = $props();
 	let dropdownOpen = $state(false);
+	let mobileMenuOpen = $state(false);
 
 	function toggleDropdown() {
 		dropdownOpen = !dropdownOpen;
@@ -29,10 +30,21 @@
 		dropdownOpen = false;
 	}
 
+	function toggleMobileMenu() {
+		mobileMenuOpen = !mobileMenuOpen;
+	}
+
+	function closeMobileMenu() {
+		mobileMenuOpen = false;
+	}
+
 	function handleClickOutside(e: MouseEvent) {
 		const target = e.target as HTMLElement;
 		if (!target.closest('.dropdown-wrapper')) {
 			closeDropdown();
+		}
+		if (!target.closest('.hamburger') && !target.closest('.mobile-menu')) {
+			closeMobileMenu();
 		}
 	}
 </script>
@@ -62,7 +74,7 @@
 			<div class="header-right">
 				{#if user}
 					<!-- Chat button -->
-					<button class="chat-trigger" onclick={toggleChat} aria-label="Open chat">
+					<button class="chat-trigger" onclick={toggleChat} aria-label="Open chat" >
 						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
 							<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
 						</svg>
@@ -129,9 +141,62 @@
 					<a href="/login" class="btn-login">Login</a>
 					<a href="/register" class="btn-signup">Sign Up</a>
 				{/if}
+
+				<!-- Hamburger (mobile only) -->
+				<button class="hamburger" onclick={toggleMobileMenu} aria-label="Toggle menu" aria-expanded={mobileMenuOpen}>
+					{#if mobileMenuOpen}
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+							<line x1="18" y1="6" x2="6" y2="18" />
+							<line x1="6" y1="6" x2="18" y2="18" />
+						</svg>
+					{:else}
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+							<line x1="3" y1="6" x2="21" y2="6" />
+							<line x1="3" y1="12" x2="21" y2="12" />
+							<line x1="3" y1="18" x2="21" y2="18" />
+						</svg>
+					{/if}
+				</button>
 			</div>
 		</nav>
 	</div>
+
+	<!-- Mobile menu -->
+	{#if mobileMenuOpen}
+		<div class="mobile-menu">
+			{#if user}
+				<a href="/play" class="mobile-link" onclick={closeMobileMenu}>
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3" /></svg>
+					Play
+				</a>
+				<a href="/leaderboard" class="mobile-link" onclick={closeMobileMenu}>
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20V10M18 20V4M6 20v-4" stroke-linecap="round" /></svg>
+					Leaderboard
+				</a>
+				<a href="/tournaments" class="mobile-link" onclick={closeMobileMenu}>
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6M18 9h1.5a2.5 2.5 0 0 0 0-5H18M4 22h16M10 22V2h4v20" stroke-linecap="round" stroke-linejoin="round" /></svg>
+					Tournaments
+				</a>
+				<a href="/friends" class="mobile-link" onclick={closeMobileMenu}>
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></svg>
+					Friends
+				</a>
+				<a href="/instructions" class="mobile-link" onclick={closeMobileMenu}>
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10" /><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3M12 17h.01" /></svg>
+					Instructions
+				</a>
+			{:else}
+				<a href="/instructions" class="mobile-link" onclick={closeMobileMenu}>
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10" /><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3M12 17h.01" /></svg>
+					Instructions
+				</a>
+				<a href="/about" class="mobile-link" onclick={closeMobileMenu}>
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" /></svg>
+					About
+				</a>
+			{/if}
+		</div>
+	{/if}
 </header>
 
 <style>
