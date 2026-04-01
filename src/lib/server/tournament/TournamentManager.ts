@@ -65,6 +65,12 @@ function clearTournamentTimeouts(tournamentId: number): void {
 
 // ── Helpers ──────────────────────────────────────────────
 
+/** Check if a tournament participant is a bot (username starts with "[BOT]"). */
+function isBot(playerId: number, playerMap: Map<number, string>): boolean {
+	const username = playerMap.get(playerId);
+	return username != null && username.startsWith('[BOT]');
+}
+
 /** Broadcast to all sockets of both players in a room */
 function tournamentBroadcastState(
 	roomId: string,

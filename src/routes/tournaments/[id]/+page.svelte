@@ -145,13 +145,6 @@
 		);
 	}
 
-	function handleCancel() {
-		const socket = getSocket();
-		if (!socket?.connected) { toast.error('Not connected'); return; }
-		socket.emit('tournament:cancel', { tournamentId: tournament.id });
-		socket.once('tournament:error', (d: { message: string }) => toast.error(d.message));
-	}
-
 	// Listen for real-time updates
 	onMount(() => {
 		const socket = getSocket();
@@ -192,6 +185,9 @@
 				};
 				invalidateAll(); // Reload participants with final placements
 			}
+		});
+	});
+
 	onDestroy(() => {
 		const socket = getSocket();
 		if (!socket) return;

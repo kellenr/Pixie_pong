@@ -1850,29 +1850,6 @@ async function advanceTournamentWinner(tournamentId, round, matchIndex, winnerId
 			return count + r.matches.filter(m => m.winnerId === loserId).length;
 		}, 0);
 
-		// Determine 2nd place from the final match loser
-		await sql`UPDATE tournament_participants SET placement = 2 WHERE tournament_id = ${tournamentId} AND user_id = ${loserId} AND (placement IS NULL OR placement > 2)`;
-
-		// Build podium (top 3)
-		const podiumRows = await sql`
-			SELECT tp.user_id, tp.placement, u.username, u.avatar_url
-			FROM tournament_participants tp
-			JOIN users u ON u.id = tp.user_id
-			WHERE tp.tournament_id = ${tournamentId}
-			ORDER BY tp.placement
-		`;
-		const podium = podiumRows
-			.filter(p => p.placement !== null && p.placement <= 3)
-			.map(p => ({ userId: p.user_id, username: p.username, avatarUrl: p.avatar_url, placement: p.placement }));
-
-		// Count champion's and runner-up's wins
-		const championWins = tourney.bracket.reduce((count, r) => {
-			return count + r.matches.filter(m => m.winnerId === winnerId).length;
-		}, 0);
-		const runnerUpWins = tourney.bracket.reduce((count, r) => {
-			return count + r.matches.filter(m => m.winnerId === loserId).length;
-		}, 0);
-
 		emitToTournamentParticipants(tournamentId, 'tournament:finished', {
 			tournamentId,
 			winnerId,
@@ -2408,19 +2385,6 @@ io.on('connection', (socket) => {
 					}
 				}
 			}
-			io.emit('tournament:list-updated');
-		} catch (err) {
-			console.error('[Tournament] Cancel failed:', err);
-			socket.emit('tournament:error', { message: 'Failed to cancel tournament' });
-		}
-		if (tournament.status !== 'scheduled') {
-			socket.emit('tournament:error', { message: 'Cannot cancel a started tournament' });
-			return;
-		}
-
-			await sql`DELETE FROM tournament_participants WHERE tournament_id = ${data.tournamentId}`;
-			await sql`DELETE FROM tournaments WHERE id = ${data.tournamentId}`;
-			io.emit('tournament:cancelled', { tournamentId: data.tournamentId });
 			io.emit('tournament:list-updated');
 		} catch (err) {
 			console.error('[Tournament] Cancel failed:', err);

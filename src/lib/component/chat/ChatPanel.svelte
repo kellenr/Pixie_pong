@@ -43,6 +43,7 @@
 			name: string | null;
 			avatar_url: string | null;
 			is_online: boolean;
+			is_system: boolean | null;
 		}>
 	>([]);
 
