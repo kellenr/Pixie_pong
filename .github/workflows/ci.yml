@@ -42,7 +42,7 @@ jobs:
         run: npm ci
 
       - name: Start test database
-        run: docker compose up -d test_pong
+        run: docker compose up -d db_test
         env:
           POSTGRES_DB: test_pong
           POSTGRES_USER: root
