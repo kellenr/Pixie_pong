@@ -34,10 +34,10 @@ COMPOSE_FILE = compose.yml
 COMPOSE := docker compose -f $(COMPOSE_FILE)
 
 # DB container
-DB_CONTAINER		= ft_db
-DB_TEST_CONTAINER	= test_db
+DB_CONTAINER		= pixie_pong
+DB_TEST_CONTAINER	= test_pong
 DB_USER             = root
-DB_NAME             = pong_db
+DB_NAME             = pixie_pong
 
 # ================================================================================
 # SETUP & INSTALLATION
@@ -210,8 +210,8 @@ test-setup: docker-up db-test-ready db-push-test
 ## Run tests only (assumes DB is already running with schema)
 test-run:
 	@echo "$(TEST) $(LILAC)Running tests on test database (port 5433)...$(NC)"
-	@DATABASE_URL=postgres://root:mysecretpassword@localhost:5433/db_test \
-	 DB_URL=postgres://root:mysecretpassword@localhost:5433/db_test \
+	@DATABASE_URL=postgres://root:mysecretpassword@localhost:5433/test_pong \
+	 DB_URL=postgres://root:mysecretpassword@localhost:5433/test_pong \
 	 npx vitest --run
 	@echo "$(CHECK) $(MINT)Tests complete!$(NC)"
 

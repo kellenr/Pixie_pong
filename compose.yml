@@ -4,7 +4,7 @@
 
 services:
   db:
-    container_name: ft_db
+    container_name: pixie_pong
     image: postgres:16-alpine
     restart: unless-stopped
     ports:
@@ -16,7 +16,7 @@ services:
 
   # Testing container, so our real data will not be corrupt.
   db_test:
-    container_name: test_db
+    container_name: test_pong
     image: postgres:16-alpine
     restart: unless-stopped
     ports:

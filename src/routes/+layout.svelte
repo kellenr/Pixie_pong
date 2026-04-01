@@ -311,7 +311,7 @@
 </script>
 
 <svelte:head>
-	<title>PONG - ft_transcendence</title>
+	<title>PONG - Pixie_pong</title>
 	<meta name="description" content="Play the classic Pong game online!" />
 	<link rel="icon" href={favicon} />
 </svelte:head>
