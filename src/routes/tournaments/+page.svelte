@@ -101,6 +101,7 @@
 		{ value: 8, label: '8 players', sub: '3 rounds', emoji: '🔥' },
 		{ value: 16, label: '16 players', sub: '4 rounds', emoji: '💥' },
 	];
+
 </script>
 
 <Starfield />

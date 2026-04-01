@@ -37,7 +37,8 @@ export const users = pgTable('users', {
 	}>().default({
 		speedPreset: 'normal',
 		winScore: 5,
-	})
+	}),
+	is_system: boolean('is_system').default(false),
 }, (t) => ({
 	checkWins: check('positive_wins', sql`${t.wins} >= 0`),
 	checkLosses: check('positive_losses', sql`${t.losses} >= 0`),

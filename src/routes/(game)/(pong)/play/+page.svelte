@@ -610,7 +610,7 @@
 	{#if gamePhase === "menu"}
 		<div class="game-header">
 			<h1 class="pong-title">PONG</h1>
-			<p class="pong-subtitle">ft_transcendence</p>
+			<p class="pong-subtitle">Pixie Pong</p>
 		</div>
 
 		<!-- ═══ MENU PHASE ═══ -->

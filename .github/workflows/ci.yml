@@ -44,7 +44,7 @@ jobs:
       - name: Start test database
         run: docker compose up -d db_test
         env:
-          POSTGRES_DB: db_test
+          POSTGRES_DB: test_pong
           POSTGRES_USER: root
           POSTGRES_PASSWORD: mysecretpassword
           DB_PORT: 5432
@@ -52,7 +52,7 @@ jobs:
       - name: Wait for database
         run: |
           for i in {1..30}; do
-            if docker exec test_db pg_isready -U root -d db_test; then
+            if docker exec test_pong pg_isready -U root -d test_pong; then
               echo "Database is ready"
               break
             fi
@@ -62,15 +62,15 @@ jobs:
 
       - name: Push database schema
         env:
-          DATABASE_URL: postgres://root:mysecretpassword@localhost:5433/db_test
+          DATABASE_URL: postgres://root:mysecretpassword@localhost:5433/test_pong
         run: npx drizzle-kit push --force
 
       - name: Build
         run: npm run build
         env:
-          DATABASE_URL: postgres://root:mysecretpassword@localhost:5433/db_test
+          DATABASE_URL: postgres://root:mysecretpassword@localhost:5433/test_pong
 
       - name: Run tests
         run: npx vitest --run
         env:
-          DATABASE_URL: postgres://root:mysecretpassword@localhost:5433/db_test
+          DATABASE_URL: postgres://root:mysecretpassword@localhost:5433/test_pong

@@ -153,6 +153,61 @@ async function notifyFriends(userId, event, data) {
 	}
 }
 
+// ── Helper: Pixie system bot ─────────────────────────────────────
+let cachedPixieId = null;
+
+async function getPixieId() {
+	if (cachedPixieId) return cachedPixieId;
+	const rows = await sql`SELECT id FROM users WHERE username = 'pixie' LIMIT 1`;
+	if (rows.length > 0) {
+		cachedPixieId = Number(rows[0].id);
+		return cachedPixieId;
+	}
+	// Auto-create if not found
+	const created = await sql`
+		INSERT INTO users (username, name, email, password_hash, avatar_url, is_online, is_system)
+		VALUES ('pixie', 'Pixie', 'pixie@system.local',
+			'$argon2id$v=19$m=65536,t=3,p=4$SYSTEM_BOT_NO_LOGIN$0000000000000000000000000000000000000000000',
+			'/avatars/pixie.svg', true, true)
+		ON CONFLICT (username) DO UPDATE SET is_system = true
+		RETURNING id
+	`;
+	cachedPixieId = Number(created[0].id);
+	return cachedPixieId;
+}
+
+async function sendPixieMsg(recipientId, content) {
+	try {
+		const pixieId = await getPixieId();
+		const rows = await sql`
+			INSERT INTO messages (sender_id, recipient_id, type, content)
+			VALUES (${pixieId}, ${recipientId}, 'chat', ${content})
+			RETURNING id, created_at
+		`;
+		const msg = rows[0];
+		const recipientSockets = userSockets.get(recipientId);
+		if (recipientSockets) {
+			for (const sid of recipientSockets) {
+				io.to(sid).emit('chat:message', {
+					id: msg.id,
+					senderId: pixieId,
+					senderUsername: 'pixie',
+					senderAvatar: '/avatars/pixie.svg',
+					recipientId,
+					content,
+					createdAt:
+						msg.created_at instanceof Date
+							? msg.created_at.toISOString()
+							: String(msg.created_at),
+					gameId: null,
+				});
+			}
+		}
+	} catch (err) {
+		socketLog.error({ err: err.message }, 'Failed to send Pixie message');
+	}
+}
+
 // ── Game Engine (inline copy of gameEngine.ts — plain JS) ────────
 // Must stay in sync with src/lib/component/pong/gameEngine.ts
 
@@ -1904,6 +1959,7 @@ io.on('connection', (socket) => {
 					io.to(sid).emit('game:invite-expired', { inviteId });
 				}
 			}
+			sendPixieMsg(userId, `Your game invite to a friend has expired.`);
 		}, 30000);
 
 		activeInvites.set(inviteId, {
@@ -1927,6 +1983,7 @@ io.on('connection', (socket) => {
 				});
 			}
 		}
+		sendPixieMsg(friendId, `${username} has challenged you to a game of Pong!`);
 	});
 
 	socket.on('game:invite-accept', (data) => {
@@ -1980,6 +2037,7 @@ io.on('connection', (socket) => {
 				io.to(sid).emit('game:invite-declined', { fromUsername: username });
 			}
 		}
+		sendPixieMsg(invite.fromUserId, `${username} declined your game invite.`);
 	});
 
 	// ── Join a game room ──────────────────────────────────────────

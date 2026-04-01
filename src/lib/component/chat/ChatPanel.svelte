@@ -43,6 +43,7 @@
 			name: string | null;
 			avatar_url: string | null;
 			is_online: boolean;
+			is_system: boolean | null;
 		}>
 	>([]);
 
@@ -234,7 +235,12 @@
 							status={friend.is_online ? 'online' : 'offline'}
 						/>
 						<div class="friend-info">
-							<span class="friend-name">{friend.name || friend.username}</span>
+							<span class="friend-name">
+								{friend.name || friend.username}
+								{#if friend.is_system}
+									<span class="bot-badge-sm">BOT</span>
+								{/if}
+							</span>
 							{#if isTyping(friend.id)}
 								<span class="typing-indicator">typing...</span>
 							{:else}
@@ -706,6 +712,20 @@
 	.send-btn:disabled {
 		opacity: 0.4;
 		cursor: default;
+	}
+
+	/* ── BOT badge ── */
+	.bot-badge-sm {
+		display: inline-block;
+		background: rgba(124, 58, 237, 0.2);
+		color: #a78bfa;
+		font-size: 0.5rem;
+		padding: 0.05rem 0.25rem;
+		border-radius: 0.2rem;
+		font-weight: 700;
+		letter-spacing: 0.04em;
+		margin-left: 0.25rem;
+		vertical-align: middle;
 	}
 
 	/* ── Mobile ── */

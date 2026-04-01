@@ -18,6 +18,7 @@
 	import { onMount } from 'svelte';
 
 	let activeRoomId = $state<string | null>(null);
+	let roomDestroyedRecently = false;
 
 	let pendingInvite: {
 		inviteId: string;
@@ -210,6 +211,8 @@
 
 		socket.on('game:room-destroyed', () => {
 			activeRoomId = null;
+			roomDestroyedRecently = true;
+			setTimeout(() => { roomDestroyedRecently = false; }, 500);
 		});
 
 		// Track paused game room so pill shows even if user navigates away during pause
@@ -264,9 +267,11 @@
 			// Arrived at game page — clear pill
 			activeRoomId = null;
 		} else if (from?.url?.pathname.startsWith('/play/online/') && from?.url?.pathname !== '/play/online/waiting') {
-			// Left a game page — remember the room so pill shows
-			const roomId = from.url.pathname.split('/play/online/')[1];
-			if (roomId) activeRoomId = roomId;
+			// Left a game page — remember the room so pill shows (unless room was just destroyed)
+			if (!roomDestroyedRecently) {
+				const roomId = from.url.pathname.split('/play/online/')[1];
+				if (roomId) activeRoomId = roomId;
+			}
 		}
 	});
 
@@ -311,7 +316,7 @@
 </script>
 
 <svelte:head>
-	<title>PONG - ft_transcendence</title>
+	<title>PONG - Pixie_pong</title>
 	<meta name="description" content="Play the classic Pong game online!" />
 	<link rel="icon" href={favicon} />
 </svelte:head>

@@ -27,7 +27,7 @@ jobs:
 
     steps:
       - name: Downcase container image
-        run: echo "IMAGE_NAME=${IMAGE_NAME,,}" >> "$GITHUB_ENV" 
+        run: echo "IMAGE_NAME=${IMAGE_NAME,,}" >> "$GITHUB_ENV"
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -198,9 +198,9 @@ jobs:
               "image": "'"$POSTGRES_IMAGE"'",
               "pod": "'"$POD_NAME"'",
               "env": {
-                "POSTGRES_USER": "transcendence",
-                "POSTGRES_PASSWORD": "transcendence",
-                "POSTGRES_DB": "transcendence"
+                "POSTGRES_USER": "pixiepong",
+                "POSTGRES_PASSWORD": "pixiepong",
+                "POSTGRES_DB": "pixiepong"
               },
               "volumes": [{
                 "Name": "'"$VOLUME_NAME"'",
@@ -225,7 +225,7 @@ jobs:
               "image": "'"$IMAGE_REF"'",
               "pod": "'"$POD_NAME"'",
               "env": {
-                "DATABASE_URL": "postgresql://transcendence:transcendence@localhost:5432/transcendence",
+                "DATABASE_URL": "postgresql://pixiepong:pixiepong@localhost:5432/pixiepong",
                 "NODE_ENV": "production"
               },
               "labels": {

@@ -13,6 +13,7 @@
 	import TournamentChat from '$lib/component/tournament/TournamentChat.svelte';
 	import NoiseGrain from '$lib/component/effect/NoiseGrain.svelte';
 
+
 	let { data } = $props();
 
 	// Server data as base, with socket overrides
@@ -155,6 +156,12 @@
 		socket.on('tournament:player-left', (d: any) => {
 			if (d.tournamentId === tournament.id) invalidateAll();
 		});
+		socket.on('tournament:cancelled', (d: any) => {
+			if (d.tournamentId === tournament.id) {
+				toast.info('Tournament was cancelled');
+				goto('/tournaments');
+			}
+		});
 		socket.on('tournament:started', (d: any) => {
 			if (d.tournamentId === tournament.id) {
 				socketOverrides = {
@@ -174,7 +181,6 @@
 				socketOverrides = {
 					...socketOverrides,
 					status: 'finished',
-					winnerId: d.winnerId,
 					bracket: d.bracket,
 				};
 				invalidateAll(); // Reload participants with final placements
@@ -186,10 +192,7 @@
 		const socket = getSocket();
 		if (!socket) return;
 		// Don't remove tournament:cancelled — it's owned by the layout
-		socket.off('tournament:player-joined');
 		socket.off('tournament:player-left');
-		socket.off('tournament:started');
-		socket.off('tournament:bracket-update');
 		socket.off('tournament:finished');
 	});
 
@@ -620,6 +623,76 @@
 	.yr-value.red {
 		color: #f87171;
 	}
+
+	.yr-label {
+		display: block;
+		font-size: 0.6rem;
+		color: #6b7280;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		margin-top: 0.1rem;
+	}
+
+	/* ── Info Bar ───────────────────────── */
+	.info-bar {
+		display: flex;
+		justify-content: center;
+		gap: 1.5rem;
+		padding: 0.75rem 1.25rem;
+		background: rgba(255, 255, 255, 0.03);
+		border: 1px solid rgba(255, 255, 255, 0.06);
+		border-radius: 0.65rem;
+		margin-bottom: 24px;
+	}
+
+	.info-item {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+		font-size: 0.8rem;
+		color: #9ca3af;
+	}
+
+	.info-item strong {
+		color: #d1d5db;
+		font-weight: 600;
+		text-transform: capitalize;
+	}
+
+	/* ── Your Run Card ──────────────────── */
+	.your-run {
+		max-width: 420px;
+		margin: 0 auto 32px;
+		padding: 1rem 1.5rem;
+		background: rgba(255, 107, 157, 0.04);
+		border: 1px solid rgba(255, 107, 157, 0.15);
+		border-radius: 0.75rem;
+	}
+
+	.your-run-title {
+		font-size: 0.75rem;
+		font-weight: 600;
+		color: #ff6b9d;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		margin-bottom: 0.75rem;
+	}
+
+	.your-run-stats {
+		display: flex;
+		justify-content: space-around;
+		text-align: center;
+	}
+
+	.yr-value {
+		display: block;
+		font-size: 1.1rem;
+		font-weight: 800;
+		color: #f3f4f6;
+	}
+
+	.yr-value.green { color: #4ade80; }
+	.yr-value.red { color: #f87171; }
 
 	.yr-label {
 		display: block;

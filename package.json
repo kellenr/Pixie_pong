@@ -22,12 +22,12 @@
 		"db:stop": "docker compose down",
 		"db:reset": "drizzle-kit drop && npm run db:push",
 		"db:push": "drizzle-kit push --force",
-		"db:push:test": "DATABASE_URL=postgres://root:mysecretpassword@localhost:5433/db_test npm run db:push",
+		"db:push:test": "DATABASE_URL=postgres://root:mysecretpassword@localhost:5433/test_pong npm run db:push",
 		"db:generate": "drizzle-kit generate",
 		"db:migrate": "drizzle-kit migrate",
 		"db:studio": "drizzle-kit studio",
-		"db:studio:test": "DATABASE_URL=postgres://root:mysecretpassword@localhost:5433/db_test drizzle-kit studio",
-		"db:seed:test": "DATABASE_URL=postgres://root:mysecretpassword@localhost:5433/db_test npx tsx src/lib/server/db/test_db/seed.ts",
+		"db:studio:test": "DATABASE_URL=postgres://root:mysecretpassword@localhost:5433/test_pong drizzle-kit studio",
+		"db:seed:test": "DATABASE_URL=postgres://root:mysecretpassword@localhost:5433/test_pong npx tsx src/lib/server/db/test_db/seed.ts",
 		"db:seed": "npx tsx src/lib/server/db/seed.ts"
 	},
 	"devDependencies": {
