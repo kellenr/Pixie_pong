@@ -1,1 +1,1 @@
-ALTER TABLE "users" ADD COLUMN "is_system" boolean DEFAULT false;
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "is_system" boolean DEFAULT false;
