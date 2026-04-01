@@ -4,6 +4,7 @@ import { db } from '$lib/server/db';
 import { friendships } from '$lib/server/db/schema';
 import { eq, and, or } from 'drizzle-orm';
 import { emitToUser } from '$lib/server/socket/emitters';
+import { isPixieUser } from '$lib/server/db/pixie';
 
 export const POST: RequestHandler = async ({ locals, request }) => {
 	if (!locals.user) {
@@ -23,6 +24,10 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 
 	if (!friendId || typeof friendId !== 'number') {
 		return json({ error: 'friendId is required' }, { status: 400 });
+	}
+
+	if (await isPixieUser(friendId)) {
+		return json({ error: 'Cannot remove system users' }, { status: 400 });
 	}
 
 	// Either user can unfriend — check both directions

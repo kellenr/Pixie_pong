@@ -2,8 +2,9 @@ import type { Socket } from 'socket.io';
 import { getIO, userSockets } from '../index';
 import { db } from '$lib/server/db';
 import { messages } from '$lib/server/db/schema';
-import { eq, and, or, desc } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import { getFriendIds, isBlocked } from '$lib/server/db/helpers_queries';
+import { isPixieUser, processPixieCommand } from '$lib/server/db/pixie';
 
 export function registerChatHandlers(socket: Socket) {
 	const userId: number = socket.data.userId;
@@ -21,6 +22,33 @@ export function registerChatHandlers(socket: Socket) {
 		if (!content || content.trim().length === 0) return;
 		if (content.length > 500) return;  // max message length
 		if (recipientId === userId) return;
+
+		// Pixie interception — handle interactive commands
+		if (await isPixieUser(recipientId)) {
+			// Save user's message to DB
+			const [userMsg] = await db.insert(messages).values({
+				sender_id: userId,
+				recipient_id: recipientId,
+				type: 'chat',
+				content: content.trim(),
+			}).returning();
+
+			// Confirm to sender
+			socket.emit('chat:sent', {
+				id: userMsg.id,
+				senderId: userId,
+				senderUsername: username,
+				senderAvatar: socket.data.avatarUrl,
+				recipientId,
+				content: userMsg.content,
+				createdAt: userMsg.created_at instanceof Date ? userMsg.created_at.toISOString() : String(userMsg.created_at),
+				gameId: null,
+			});
+
+			// Process command and send Pixie's response
+			await processPixieCommand(userId, content.trim());
+			return;
+		}
 
 		// Block check — always check, even for in-game chat
 		const blocked = await isBlocked(userId, recipientId);

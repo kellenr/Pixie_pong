@@ -37,6 +37,7 @@ export async function getFriendProfiles(userId: number) {
 			name: users.name,
 			avatar_url: users.avatar_url,
 			is_online: users.is_online,
+			is_system: users.is_system,
 		})
 		.from(friendships)
 		.innerJoin(
@@ -51,7 +52,8 @@ export async function getFriendProfiles(userId: number) {
 				eq(friendships.status, 'accepted'),
 				eq(users.is_deleted, false)
 			)
-		);
+		)
+		.orderBy(desc(users.is_system));
 
 	// Deduplicate
 	const seen = new Set<number>();

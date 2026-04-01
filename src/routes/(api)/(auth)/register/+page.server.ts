@@ -10,6 +10,7 @@ import { db } from '$lib/server/db';
 import { users } from '$lib/server/db/schema';
 // import { eq } from 'drizzle-orm';
 import type { FormErrors } from '$lib/types/form';
+import { setupPixieForNewUser } from '$lib/server/db/pixie';
 
 
 export const load: PageServerLoad = async ({ locals }) => {
@@ -73,6 +74,7 @@ export const actions: Actions = {
 				.returning({ id: users.id });
 
 			await createAndSetSession(newUser.id, cookies);
+			setupPixieForNewUser(newUser.id, username);
 		} catch (err) {
 			authLogger.error({ err }, 'Registration error');
 

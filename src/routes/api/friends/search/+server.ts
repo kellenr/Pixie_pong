@@ -33,7 +33,8 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 					ilike(users.name, `%${query}%`)
 				),
 				ne(users.id, userId),
-				eq(users.is_deleted, false)
+				eq(users.is_deleted, false),
+				eq(users.is_system, false),
 			)
 		)
 		.limit(20);

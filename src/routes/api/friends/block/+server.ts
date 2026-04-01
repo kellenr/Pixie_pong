@@ -4,6 +4,7 @@ import { db } from '$lib/server/db';
 import { friendships, users } from '$lib/server/db/schema';
 import { eq, and, or } from 'drizzle-orm';
 import { emitToUser } from '$lib/server/socket/emitters';
+import { isPixieUser } from '$lib/server/db/pixie';
 
 export const POST: RequestHandler = async ({ locals, request }) => {
 	if (!locals.user) {
@@ -27,6 +28,10 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 
 	if (friendId === userId) {
 		return json({ error: 'Cannot block yourself' }, { status: 400 });
+	}
+
+	if (await isPixieUser(friendId)) {
+		return json({ error: 'Cannot block system users' }, { status: 400 });
 	}
 
 	// Check target exists
